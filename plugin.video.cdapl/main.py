@@ -16,8 +16,6 @@ cache = StorageServer.StorageServer('cda')
 
 from resources.lib import cdapl as cda 
 
-
-
 base_url        = sys.argv[0]
 addon_handle    = int(sys.argv[1])
 args            = urlparse.parse_qs(sys.argv[2][1:])
@@ -28,6 +26,12 @@ DATAPATH    = xbmc.translatePath(my_addon.getAddonInfo('profile')).decode('utf-8
 RESOURCES   = PATH+'/resources/'
 MEDIA       = RESOURCES+'/media/'
 FAVORITE    = os.path.join(DATAPATH,'favorites.json')
+premka =  my_addon.getSetting('premka')
+
+SERVICE     = 'cda'
+if not os.path.exists(DATAPATH):
+		os.makedirs(DATAPATH)
+cda.COOKIEFILE  = os.path.join(DATAPATH,'cookie.cda')	
 
 def getUrl(url,data=None):
     req = urllib2.Request(url,data)
@@ -134,12 +138,12 @@ def build_url(query):
     return base_url + '?' + urllib.urlencode(encoded_dict(query))
 	
 def decodeVideo(ex_link):
-    tmp_COOKIE = cda.COOKIEFILE
-    cda.COOKIEFILE = ''
+   # tmp_COOKIE = cda.COOKIEFILE
+   # cda.COOKIEFILE = ''
     stream_url = cda.getVideoUrls(ex_link)
     quality = my_addon.getSetting('quality')
     stream_url = selectQuality(stream_url,int(quality))
-    cda.COOKIEFILE = tmp_COOKIE
+  #  cda.COOKIEFILE = tmp_COOKIE
     if 'cda.pl/video/show/' in stream_url:
         xbmcplugin.setResolvedUrl(addon_handle, False, xbmcgui.ListItem(path=''))
         url = build_url({'mode': 'cdaSearch', 'ex_link' : stream_url})
@@ -362,22 +366,34 @@ def cdaSearch(ex_link):
     SelSort()
     x=xbmcplugin.endOfDirectory(addon_handle,succeeded=True)
 def logincda():
-    u = my_addon.getSetting('user')
-    p = my_addon.getSetting('pass')
-    if u and p:
-        if cda.CDA_login(u,p,DATAPATH+'cookie.cda'):
-            cda.COOKIEFILE=DATAPATH+'cookie.cda'
-            addDir('[B]Moje cda.pl[/B]',ex_link='', json_file='', mode='MojeCDA', iconImage='cdaMoje.png',infoLabels=False)
-if os.path.exists(os.path.join(DATAPATH,'cookie.cda')):
-    cda.COOKIEFILE=os.path.join(DATAPATH,'cookie.cda')
+	u = my_addon.getSetting('user')
+	p = my_addon.getSetting('pass')
+	if u and p:
+		logged,typ = cda.CDA_login(u,p,DATAPATH+'cookie.cda')
+		if logged:
+			plot = 'Konto darmowe'
+			if typ:
+				plot = 'Konto premium'
+			cda.COOKIEFILE=DATAPATH+'cookie.cda'
+			addDir('[B]Moje cda.pl[/B]',ex_link='', json_file='', mode='MojeCDA', iconImage='cdaMoje.png',infoLabels={'plot':plot})
+
+
 def HistoryLoad():
     return cache.get('history').split(';')
+dekodowanie = lambda (t) : t.encode('utf-8') if isinstance(t,unicode) else t
 def HistoryAdd(entry):
-    history = HistoryLoad()
-    if history == ['']:
-        history = []
-    history.insert(0, entry.encode('utf-8'))
-    cache.set('history',u';'.join(history[:50]))
+	history = HistoryLoad()
+	if history == ['']:
+		history = []
+	
+	
+	
+	
+	history.insert(0, dekodowanie(entry))
+	try:
+		cache.set('history',';'.join(history[:50]))
+	except:
+		pass
 def HistoryDel(entry):
     history = HistoryLoad()
     if history:
@@ -448,23 +464,25 @@ elif mode[0] == 'premiumQuality':
         my_addon.setSetting('jakosc_premium',my_sort)
         xbmc.executebuiltin('XBMC.Container.Refresh')
 elif mode[0] == 'premiumFilm':
-    sortuj_po = my_addon.getSetting('sortuj_po')
-    jakosc_premium = my_addon.getSetting('jakosc_premium')
-    if '?' not in ex_link:
-        url = ex_link+'?sort=%s&q=%s&d=2'%(cda.premium_Sort().get(sortuj_po,''),cda.qual_Sort().get(jakosc_premium,''))
-    else:
-        url = ex_link
-    items,params=cda.premium_Content(url,json_file)
-    for item in items:
-        name= cda.html_entity_decode(item.get('title',''))
-        href = item.get('url','')
-        if 'folder' in href:
-            addDir(name,ex_link=href, json_file='ignore', mode='walk',infoLabels=item,iconImage=item.get('img'))
-        else:
-            addLinkItem(name=name, url=href, mode='decodeVideo',contextO=[], iconImage=item.get('img'), infoLabels=item, IsPlayable=True,fanart=item.get('img'),totalItems=len(items))
-    if params:
-        addDir('[COLOR gold]Nast\xc4\x99pna strona >> [/COLOR] ',ex_link=url, json_file=params, mode='premiumFilm',iconImage='next.png')
-    xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
+	sortuj_po = my_addon.getSetting('sortuj_po')
+	jakosc_premium = my_addon.getSetting('jakosc_premium')
+	if '?' not in ex_link:
+		url = ex_link+'?sort=%s&q=%s&d=2'%(cda.premium_Sort().get(sortuj_po,''),cda.qual_Sort().get(jakosc_premium,''))
+		if premka=='true':
+			url = ex_link+'?sort=%s&q=%s&d=1,2'%(cda.premium_Sort().get(sortuj_po,''),cda.qual_Sort().get(jakosc_premium,''))
+	else:
+		url = ex_link
+	items,params=cda.premium_Content(url,json_file)
+	for item in items:
+		name= cda.html_entity_decode(item.get('title',''))
+		href = item.get('url','')
+		if 'folder' in href:
+			addDir(name,ex_link=href, json_file='ignore', mode='walk',infoLabels=item,iconImage=item.get('img'))
+		else:
+			addLinkItem(name=name, url=href, mode='decodeVideo',contextO=[], iconImage=item.get('img'), infoLabels=item, IsPlayable=True,fanart=item.get('img'),totalItems=len(items))
+	if params:
+		addDir('[COLOR gold]Nast\xc4\x99pna strona >> [/COLOR] ',ex_link=url, json_file=params, mode='premiumFilm',iconImage='next.png')
+	xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
 elif mode[0] == 'favoritesADD':
     jdata = cda.ReadJsonFile(FAVORITE)
     new_item=json.loads(ex_link)

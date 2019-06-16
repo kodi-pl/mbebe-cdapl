@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings>
-
+	<setting id="loginCookie" value="" />	
+	<setting id="premka" value="false" default="false"/>	
     <category label="Dodatkowe Katalogi" >
         
         <setting id="K1"  type="bool" label="[COLOR blue]Katalog 1[/COLOR]" default="false"/>
@@ -78,7 +79,7 @@
         <setting id="UserFolder.content.paginatoin" label="Podziel na strony ?" type="bool"  default="false"/>
    </category>        
    <category label="Premium">
-        <setting label="Wtyczka obsługuje tylko darmowe Premium" type="lsep"/>
+        <setting label="Wtyczka obsługuje Darmowe oraz Premium" type="lsep"/>
         <setting id="sortuj_po" type="select" label="Sortuj po:" values="nowo dodane|alfabetycznie|najlepiej oceniane na Filmweb|najczęściej oceniane na Filmweb|data premiery kinowej|popularne w ciągu ostatnich 60 dni|popularne w ciągu ostatnich 30 dni" default="popularne w ciągu ostatnich 30 dni" />
         <setting id="jakosc_premium" type="select" label="Jakość:" values="Wszystkie|Wysoka jakość (720p, 1080p)|Średnia jakość (480p)|Niska jakość (360p)" default="Wszystkie" />
     </category>

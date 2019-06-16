@@ -6,51 +6,91 @@ import urllib2,urllib
 import re,os
 import json as json
 import jsunpack as jsunpack #jsunpack
+import xbmcaddon
+
+import requests
+
+
 BASEURL='https://www.cda.pl'
 TIMEOUT = 10
-COOKIEFILE = 'C:\\users\\cda.cookie'
+my_addon        = xbmcaddon.Addon()
+kukz =  my_addon.getSetting('loginCookie')
+COOKIEFILE = ''
+sess= requests.Session()
+sess.cookies = cookielib.LWPCookieJar(COOKIEFILE)
+cj=sess.cookies
 def getUrl(url,data=None,cookies=None,Refer=False):
-    if COOKIEFILE and os.path.exists(COOKIEFILE):
-        cj = cookielib.LWPCookieJar()
-        cj.load(COOKIEFILE)
-        cookies = ';'.join(['%s=%s'%(c.name,c.value) for c in cj])
-        opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
-        urllib2.install_opener(opener)
-    req = urllib2.Request(url,data)
-    req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.97 Safari/537.36')
-    if Refer:
-        req.add_header('Referer', url)
-        req.add_header('X-Requested-With', 'XMLHttpRequest')
-        req.add_header('Content-Type','application/json')
-    if cookies:
-        req.add_header('Cookie', cookies)
-    try:
-        response = urllib2.urlopen(req,timeout=TIMEOUT)
-        link =  response.read()
-        response.close()
-    except:
-        link=''
-    return link
+	if COOKIEFILE and os.path.exists(COOKIEFILE):
+		cj.load(COOKIEFILE)
+		cookies = ';'.join(['%s=%s'%(c.name,c.value) for c in cj])
+	headersok = {
+		'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36',
+		'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+		'Accept-Language': 'pl,en-US;q=0.7,en;q=0.3',
+		'Connection': 'keep-alive',
+		'Upgrade-Insecure-Requests': '1',
+		'TE': 'Trailers',}	
+	if Refer:
+		headersok.update({'Referer': url,'X-Requested-With': 'XMLHttpRequest','Content-Type':'application/json'})
+
+	if cookies:
+		headersok.update({'Cookie': cookies})
+
+	if data:
+		link = sess.post(url,headers=headersok,data=data).content
+	else:
+		try:
+			link = sess.get(url,headers=headersok).content
+		except:
+			link=''
+	return link
 def CDA_login(USER,PASS,COOKIEFILE):
-    loginData = { 'username': USER, 'password': PASS, 'submit_login': '' }
-    url='https://www.cda.pl/login'
-    cj = cookielib.LWPCookieJar()
-    opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
-    urllib2.install_opener(opener)
-    params=urllib.urlencode(loginData)
-    status=False
-    try:
-        req = urllib2.Request(url, params)
-        req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:22.0) Gecko/20100101 Firefox/22.0')
-        response = urllib2.urlopen(req)
-        contents = response.read()
-        response.close()
-        if USER in contents:
-            cj.save(COOKIEFILE, ignore_discard = True)
-            status=True
-    except:
-        pass
-    return status
+	my_addon.setSetting('loginCookie','')
+	status=False
+	typ=False
+	try:
+		headers = {
+			'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:67.0) Gecko/20100101 Firefox/67.0',
+			'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+			'Accept-Language': 'pl,en-US;q=0.7,en;q=0.3',
+			'Referer': 'https://www.cda.pl/',
+			'Content-Type': 'application/x-www-form-urlencoded',
+			'Connection': 'keep-alive',
+			'Upgrade-Insecure-Requests': '1',
+			'TE': 'Trailers',
+		}
+		
+		data = {
+		'username': USER,
+		'password': PASS,
+		'login_submit': ''
+		}
+		
+		response = sess.post('https://www.cda.pl/login', headers=headers, data=data)
+		ab=response.cookies
+		ac=sess.cookies
+		contents = (response.content).replace("\'",'"')
+
+		rodzaj = re.findall('Twoje konto:(.+?)</span>',contents)#[0]
+		if rodzaj:
+			ac.save(COOKIEFILE, ignore_discard = True)
+			cookies = ';'.join(['%s=%s'%(c.name,c.value) for c in cj])
+
+			if 'darmowe' in rodzaj[0]:
+				
+				my_addon.setSetting('premka','false')
+			else:
+				my_addon.setSetting('premka','true')	
+				typ=True
+			my_addon.setSetting('loginCookie',cookies)	
+			status=True
+		else:
+			cj.clear()
+			cj.save(COOKIEFILE, ignore_discard = True)
+			my_addon.setSetting('loginCookie','')
+	except:
+		pass
+	return status,typ
 def _get_encoded_unpaker(content):
     src =''
     packedMulti = re.compile('eval(.*?)\\{\\}\\)\\)',re.DOTALL).findall(content)
@@ -140,40 +180,47 @@ def scanforVideoLink(content):
         video_link=video_link[:-7] + video_link[-4:]
     return video_link
 def getVideoUrls(url,tryIT=4):
-    "\n    returns \n        - ulr https://....\n        - or list of [('720p', 'https://www.cda.pl/video/1946991f?wersja=720p'),...]\n         \n    "
-    url = url.replace('/vfilm','')
-    if not 'ebd.cda.pl' in url:
-       url='https://ebd.cda.pl/100x100/'+url.split('/')[-1]
-    playerSWF='|Cookie=PHPSESSID=1&Referer=http://static.cda.pl/flowplayer/flash/flowplayer.commercial-3.2.18.swf'
-    content = getUrl(url)
-    src=[]
-    if content=='':
-        src.append(('Materia\xc5\x82 zosta\xc5\x82 usuni\xc4\x99ty',''))
-    lic1 = content.find('To wideo jest niedost\xc4\x99pne ')
-    if lic1>0:
-        src.append(('To wideo jest niedost\xc4\x99pne w Twoim kraju',''))
-    elif not '?wersja' in url:
-        quality_options = re.compile('<a data-quality="(.*?)" (?P<H>.*?)>(?P<Q>.*?)</a>', re.DOTALL).findall(content)
-        for quality in quality_options:
-             link = re.search('href="(.*?)"',quality[1])
-             hd = quality[2]
-             if link:
-                src.insert(0,(hd,link.group(1)))
-    if not src:
-        src = scanforVideoLink(content)
-        if src:
-            src+=playerSWF
-        else:
-            for i in range(tryIT):
-                content = getUrl(url)
-                src = scanforVideoLink(content)
-                if src:
-                    src+=playerSWF
-                    break
-    if not src:
-        if content.find('Ten film jest dost'):
-            src=[('Ten film jest dost\xc4\x99pny dla u\xc5\xbcytkownik\xc3\xb3w premium. Wtyczka mo\xc5\xbce nie obs\xc5\x82ugiwa\xc4\x87 poprawnie zasob\xc3\xb3w premium','')]
-    return src
+	
+	"\n    returns \n        - ulr https://....\n        - or list of [('720p', 'https://www.cda.pl/video/1946991f?wersja=720p'),...]\n         \n    "
+	url = url.replace('/vfilm','')
+	url = url.replace('?from=catalog','')
+	
+	
+	
+	if not 'ebd.cda.pl' in url:
+		url='https://ebd.cda.pl/100x100/'+url.split('/')[-1]
+	playerSWF='|Cookie=PHPSESSID=1&Referer=http://static.cda.pl/flowplayer/flash/flowplayer.commercial-3.2.18.swf'
+	content = getUrl(url,cookies=kukz)
+	
+	src=[]
+	if content=='':
+		src.append(('Materia\xc5\x82 zosta\xc5\x82 usuni\xc4\x99ty',''))
+	lic1 = content.find('To wideo jest niedost\xc4\x99pne ')
+	
+	if lic1>0:
+		src.append(('To wideo jest niedost\xc4\x99pne w Twoim kraju',''))
+	elif not '?wersja' in url:
+		quality_options = re.compile('<a data-quality="(.*?)" (?P<H>.*?)>(?P<Q>.*?)</a>', re.DOTALL).findall(content)
+		for quality in quality_options:
+			link = re.search('href="(.*?)"',quality[1])
+			hd = quality[2]
+			if link:
+				src.insert(0,(hd,link.group(1)))
+	if not src:
+		src = scanforVideoLink(content)
+		if src:
+			src+=playerSWF
+		else:
+			for i in range(tryIT):
+				content = getUrl(url)
+				src = scanforVideoLink(content)
+				if src:
+					src+=playerSWF
+					break
+	if not src:
+		if content.find('Ten film jest dost'):
+			src=[('Ten film jest dost\xc4\x99pny dla u\xc5\xbcytkownik\xc3\xb3w premium. Wtyczka mo\xc5\xbce nie obs\xc5\x82ugiwa\xc4\x87 poprawnie zasob\xc3\xb3w premium','')]
+	return src
 def getVideoUrlsQuality(url,quality=0):
     '\n    returns url to video\n    '
     src = getVideoUrls(url)
@@ -510,15 +557,15 @@ def PLchar(char):
     return char
 	
 def premium_Katagorie():
-    url='https://www.cda.pl/premium'
-    content = getUrl(url)
-    genre = re.compile('<li><a\\s+href="(https://www.cda.pl/premium/.*?)">(.*?)</a>.*?</li>', re.DOTALL).findall(content)
-    out=[]
-    for one in genre:
-        out.append({'title':PLchar(one[1]),'url':one[0]})
-    if out:
-        out.insert(0,{'title':'[B]Wszystkie filmy[/B]','url':'https://www.cda.pl/premium'})
-    return out
+	url='https://www.cda.pl/premium'
+	content = getUrl(url)
+	genre = re.compile('<li><a\\s+href="(https://www.cda.pl/premium/.*?)">(.*?)</a>.*?</li>', re.DOTALL).findall(content)
+	out=[]
+	for one in genre:
+		out.append({'title':PLchar(one[1]),'url':one[0]})
+	if out:
+		out.insert(0,{'title':'[B]Wszystkie filmy[/B]','url':'https://www.cda.pl/premium'})
+	return out
 url='https://www.cda.pl/premium/seriale-i-miniserie'
 def premium_readContent(content):
     ids = [(a.start(), a.end()) for a in re.finditer('<span class="cover-area">', content)]
@@ -561,21 +608,21 @@ def qual_Sort():
     'Niska jako\xc5\x9b\xc4\x87 (360p)':'3',
     }
 def premium_Content(url,params=''):
-    if len(params)==0:
-        content = getUrl(url)
-        out = premium_readContent(content)
-        match = re.compile('katalogLoadMore\\(page,"(.*?)","(.*?)",').findall(content)
-        if match:
-            params = '%d_%s_%s' %(2,match[0][0],match[0][1])
-    else:
-        sp = params.split('_')
-        myparams = str([int(sp[0]),sp[1],sp[2],{}])
-        payload = '{"jsonrpc":"2.0","method":"katalogLoadMore","params":%s,"id":2}'%myparams
-        content = getUrl(url.split('?')[0]+'?d=2',data=payload.replace("'",'"'),Refer=True)
-        jtmp=json.loads(content).get('result') if content else {}
-        if jtmp.get('status') =='continue':
-            params = '%d_%s_%s' % (int(sp[0])+1,sp[1],sp[2])
-        else:
-            params = ''
-        out = premium_readContent(jtmp.get('html',''))
-    return out,params
+	if len(params)==0:
+		content = getUrl(url,cookies=kukz)
+		out = premium_readContent(content)
+		match = re.compile('katalogLoadMore\\(page,"(.*?)","(.*?)",').findall(content)
+		if match:
+			params = '%d_%s_%s' %(2,match[0][0],match[0][1])
+	else:
+		sp = params.split('_')
+		myparams = str([int(sp[0]),sp[1],sp[2],{}])
+		payload = '{"jsonrpc":"2.0","method":"katalogLoadMore","params":%s,"id":2}'%myparams
+		content = getUrl(url.split('?')[0]+'?d=2',data=payload.replace("'",'"'),Refer=True,cookies=kukz)
+		jtmp=json.loads(content).get('result') if content else {}
+		if jtmp.get('status') =='continue':
+			params = '%d_%s_%s' % (int(sp[0])+1,sp[1],sp[2])
+		else:
+			params = ''
+		out = premium_readContent(jtmp.get('html',''))
+	return out,params
