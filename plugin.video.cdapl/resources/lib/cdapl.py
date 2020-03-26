@@ -7,9 +7,8 @@ import re,os
 import json as json
 import jsunpack as jsunpack #jsunpack
 import xbmcaddon
-
+from urllib import unquote
 import requests
-
 
 BASEURL='https://www.cda.pl'
 TIMEOUT = 10
@@ -159,6 +158,18 @@ url='https://www.cda.pl/video/14039055a'
 url='https://www.cda.pl/video/151660966?wersja=720p'
 def scanforVideoLink(content):
     '\n    Scans for video link included encoded one\n    '
+    playerdata = re.compile('"video":({.+?})',re.DOTALL).search(content)
+
+    playerdata = playerdata.group(1) if playerdata else ''
+    if playerdata:
+    	out=[]
+    	pdata = json.loads(playerdata)
+    	drm_url = pdata['manifest_drm_proxy']
+    	custom_data = pdata['manifest_drm_pr_header']
+    	mpd_url = pdata['manifest']
+        if mpd_url:
+            out.append({'manifest': mpd_url, 'drmheader': custom_data,'drm_url':drm_url})
+            return out[0]
     video_link=''
     src1 = re.compile('[\'"]file[\'"][:\\s]*[\'"](.+?)[\'"]',re.DOTALL).search(content)
     player_data = re.findall('player_data="(.*?)"',content,re.DOTALL)
@@ -174,6 +185,25 @@ def scanforVideoLink(content):
         if not video_link:
             video_link = _get_encoded(content)
     video_link = video_link.replace('\\', '')
+    def cdadecode(videofile):
+    	a = videofile
+    	cc =len(a)
+    	linkvid=''
+    	for e in range(cc):
+    		f = ord(a[e])
+    		if f >=33 or f <=126:
+    			b=chr(33 + (f + 14) % 94)
+    		else:
+    			b=chr(f)
+    		linkvid+=b
+    	if not linkvid.endswith('.mp4'):
+    		linkvid += '.mp4'
+    	linkvid = linkvid.replace("adc.mp4", ".mp4")  
+    	
+    	if not linkvid.startswith('http'):
+    		linkvid = 'https://'+linkvid
+    	return linkvid
+    video_link = cdadecode(unquote(video_link))
     if video_link.startswith('uggc'):
         zx = lambda x: 0 if not x.isalpha() else -13 if 'A' <=x.upper()<='M' else 13
         video_link = ''.join([chr((ord(x)-zx(x)) ) for x in video_link])
@@ -186,7 +216,7 @@ def getVideoUrls(url,tryIT=4):
 	url = url.replace('?from=catalog','')
 	
 	
-	
+
 	if not 'ebd.cda.pl' in url:
 		url='https://ebd.cda.pl/100x100/'+url.split('/')[-1]
 	playerSWF='|Cookie=PHPSESSID=1&Referer=http://static.cda.pl/flowplayer/flash/flowplayer.commercial-3.2.18.swf'
@@ -199,7 +229,7 @@ def getVideoUrls(url,tryIT=4):
 	
 	if lic1>0:
 		src.append(('To wideo jest niedost\xc4\x99pne w Twoim kraju',''))
-	elif not '?wersja' in url:
+	elif not '?wersja' in url and not 'drmtoday.com' in content:
 		quality_options = re.compile('<a data-quality="(.*?)" (?P<H>.*?)>(?P<Q>.*?)</a>', re.DOTALL).findall(content)
 		for quality in quality_options:
 			link = re.search('href="(.*?)"',quality[1])
@@ -208,9 +238,9 @@ def getVideoUrls(url,tryIT=4):
 				src.insert(0,(hd,link.group(1)))
 	if not src:
 		src = scanforVideoLink(content)
-		if src:
+		if src and not 'drmheader' in str(src):
 			src+=playerSWF
-		else:
+		if not src:
 			for i in range(tryIT):
 				content = getUrl(url)
 				src = scanforVideoLink(content)

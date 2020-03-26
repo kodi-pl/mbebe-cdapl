@@ -136,22 +136,51 @@ def encoded_dict(in_dict):
     return out_dict
 def build_url(query):
     return base_url + '?' + urllib.urlencode(encoded_dict(query))
-	
+def drmlistitem(str_url):
+	play_item=''
+	from urllib import quote
+	stream_url=str_url['manifest']
+	PROTOCOL = 'mpd'
+	DRM = 'com.widevine.alpha'
+	LICENSE_URL=str_url['drm_url']
+	headr = quote(str_url['drmheader'])
+	import inputstreamhelper
+	is_helper = inputstreamhelper.Helper(PROTOCOL, drm=DRM)
+	if is_helper.check_inputstream():
+		hea = 'Content-Type=&x-dt-custom-data='+headr
+		play_item = xbmcgui.ListItem(path=stream_url)
+		play_item.setContentLookup(False)
+		play_item.setProperty('inputstreamaddon', is_helper.inputstream_addon)
+		play_item.setMimeType('application/xml+dash')
+		play_item.setProperty('inputstream.adaptive.manifest_type', PROTOCOL)
+		play_item.setProperty('inputstream.adaptive.license_type', DRM)
+
+		play_item.setProperty('inputstream.adaptive.license_key', LICENSE_URL+'|' + hea+'|R{SSM}|')
+	return play_item
 def decodeVideo(ex_link):
    # tmp_COOKIE = cda.COOKIEFILE
    # cda.COOKIEFILE = ''
     stream_url = cda.getVideoUrls(ex_link)
-    quality = my_addon.getSetting('quality')
-    stream_url = selectQuality(stream_url,int(quality))
-  #  cda.COOKIEFILE = tmp_COOKIE
-    if 'cda.pl/video/show/' in stream_url:
-        xbmcplugin.setResolvedUrl(addon_handle, False, xbmcgui.ListItem(path=''))
-        url = build_url({'mode': 'cdaSearch', 'ex_link' : stream_url})
-        xbmc.executebuiltin('XBMC.Container.Refresh(%s)'% url)
-    elif stream_url:
-        xbmcplugin.setResolvedUrl(addon_handle, True, xbmcgui.ListItem(path=stream_url))
+
+    if 'drmheader' in stream_url:
+		play_item = drmlistitem(stream_url)
+		if play_item:
+			xbmcplugin.setResolvedUrl(addon_handle, True, listitem=play_item)
+		else:
+			xbmcgui.Dialog().notification('Błąd', 'Video DRM - nie udało się odtworzyć' , xbmcgui.NOTIFICATION_INFO, 5000)
+			xbmcplugin.setResolvedUrl(addon_handle, False, xbmcgui.ListItem(path=''))
     else:
-        xbmcplugin.setResolvedUrl(addon_handle, False, xbmcgui.ListItem(path=''))
+        quality = my_addon.getSetting('quality')
+        stream_url = selectQuality(stream_url,int(quality))
+        #  cda.COOKIEFILE = tmp_COOKIE
+        if 'cda.pl/video/show/' in stream_url:
+            xbmcplugin.setResolvedUrl(addon_handle, False, xbmcgui.ListItem(path=''))
+            url = build_url({'mode': 'cdaSearch', 'ex_link' : stream_url})
+            xbmc.executebuiltin('XBMC.Container.Refresh(%s)'% url)
+        elif stream_url:
+            xbmcplugin.setResolvedUrl(addon_handle, True, xbmcgui.ListItem(path=stream_url))
+        else:
+            xbmcplugin.setResolvedUrl(addon_handle, False, xbmcgui.ListItem(path=''))
 		
 def Set_ListItem(found):
     import json
