@@ -196,8 +196,10 @@ def scanforVideoLink(content):
     		else:
     			b=chr(f)
     		linkvid+=b
+    	linkvid=linkvid[:-4]
     	if not linkvid.endswith('.mp4'):
     		linkvid += '.mp4'
+
 		linkvid = linkvid.replace("0)sss.mp4", ".mp4")  
 		linkvid = linkvid.replace(".cda.mp4", "").replace(".cda.mp4", "").replace(".2cda.pl", ".cda.pl").replace(".3cda.pl", ".cda.pl");
     	
