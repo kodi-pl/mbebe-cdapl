@@ -186,6 +186,7 @@ def scanforVideoLink(content):
             video_link = _get_encoded(content)
     video_link = video_link.replace('\\', '')
     def cdadecode(videofile):
+        videofile = cda_replace('1', videofile) ############
     	a = videofile
     	cc =len(a)
     	linkvid=''
@@ -196,13 +197,9 @@ def scanforVideoLink(content):
     		else:
     			b=chr(f)
     		linkvid+=b
-    	linkvid=linkvid[:-4]
     	if not linkvid.endswith('.mp4'):
     		linkvid += '.mp4'
-
-		linkvid = linkvid.replace("0)sss.mp4", ".mp4")  
-		linkvid = linkvid.replace(".cda.mp4", "").replace(".cda.mp4", "").replace(".2cda.pl", ".cda.pl").replace(".3cda.pl", ".cda.pl");
-    	
+    	linkvid = cda_replace('2', linkvid) ############
     	if not linkvid.startswith('http'):
     		linkvid = 'https://'+linkvid
     	return linkvid
@@ -212,6 +209,46 @@ def scanforVideoLink(content):
         video_link = ''.join([chr((ord(x)-zx(x)) ) for x in video_link])
         video_link=video_link[:-7] + video_link[-4:]
     return video_link
+########################################################
+def cda_replace(match, link):
+    data = getUrl('https://www.cda.pl/js/player.js')
+    if match == '1':
+        data1 = getDataBeetwenMarkers(data, '11:344', ';return', False)[1]
+        dane1 = re.compile('replace\((.+?)\)', re.DOTALL).findall(data1)
+        for i in range(len(dane1)):
+            rep = dane1[i]
+            item = rep.split(',')
+            a = item[0].replace('"','')
+            b = item[1].replace('"','')
+            link = link.replace(a, b)
+        return link
+    else:
+        data2 = getDataBeetwenMarkers(data, 'da=function', '}};', False)[1]
+        dane2 = re.compile('replace\((.+?)\)', re.DOTALL).findall(data2)
+        for i in range(len(dane2)):
+            rep = dane2[i]
+            item = rep.split(',')
+            a = item[0].replace('"','')
+            b = item[1].replace('"','')
+            link = link.replace(a, b)
+        return link
+def getDataBeetwenMarkers(data, marker1, marker2, withMarkers=True, caseSensitive=True):
+    if caseSensitive:
+        idx1 = data.find(marker1)
+    else:
+        idx1 = data.lower().find(marker1.lower())
+    if -1 == idx1: return False, ''
+    if caseSensitive:
+        idx2 = data.find(marker2, idx1 + len(marker1))
+    else:
+        idx2 = data.lower().find(marker2.lower(), idx1 + len(marker1))
+    if -1 == idx2: return False, ''   
+    if withMarkers:
+        idx2 = idx2 + len(marker2)
+    else:
+        idx1 = idx1 + len(marker1)
+    return True, data[idx1:idx2]        
+#########################################
 def getVideoUrls(url,tryIT=4):
 	
 	"\n    returns \n        - ulr https://....\n        - or list of [('720p', 'https://www.cda.pl/video/1946991f?wersja=720p'),...]\n         \n    "
