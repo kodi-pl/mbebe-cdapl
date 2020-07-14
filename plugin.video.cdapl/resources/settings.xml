@@ -2,6 +2,8 @@
 <settings>
 	<setting id="loginCookie" value="" />	
 	<setting id="premka" value="false" default="false"/>	
+	<setting id="sortV" value="all" default="all"/>
+	<setting id="sortN" value="wszystkie" default="wszystkie"/>
     <category label="Dodatkowe Katalogi" >
         
         <setting id="K1"  type="bool" label="[COLOR blue]Katalog 1[/COLOR]" default="false"/>

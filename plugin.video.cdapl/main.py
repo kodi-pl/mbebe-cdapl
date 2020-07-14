@@ -28,6 +28,11 @@ MEDIA       = RESOURCES+'/media/'
 FAVORITE    = os.path.join(DATAPATH,'favorites.json')
 premka =  my_addon.getSetting('premka')
 
+sortv = my_addon.getSetting('sortV')
+sortn = my_addon.getSetting('sortN') if sortv else 'wszystkie'
+
+
+
 SERVICE     = 'cda'
 if not os.path.exists(DATAPATH):
 		os.makedirs(DATAPATH)
@@ -549,6 +554,9 @@ elif mode[0] == 'favoritesREM':
 elif mode[0]=='cdaSearch':
     cdaSearch(ex_link)
 elif mode[0] =='Szukaj':
+
+    addLinkItem("[COLOR lightblue]Czas trwania:[/COLOR] [B]"+sortn+"[/B]",'',mode='filtr:sort',iconImage='',IsPlayable=False)
+
     addDir('[COLOR lightblue]Nowe Szukanie[/COLOR]','',mode='SzukajNowe')
     historia = HistoryLoad()
     if not historia == ['']:
@@ -556,13 +564,13 @@ elif mode[0] =='Szukaj':
             contextmenu = []
             contextmenu.append(('Usu\xc5\x84', 'XBMC.Container.Update(%s)'% build_url({'mode': 'SzukajUsun', 'ex_link' : entry})),)
             contextmenu.append(('Usu\xc5\x84 ca\xc5\x82\xc4\x85 histori\xc4\x99', 'XBMC.Container.Update(%s)' % build_url({'mode': 'SzukajUsunAll'})),)
-            addDir(name=entry, ex_link='http://www.cda.pl/video/show/'+entry.replace(' ','_'), mode='cdaSearch', fanart=None, contextmenu=contextmenu)
+            addDir(name=entry, ex_link='http://www.cda.pl/video/show/'+entry.replace(' ','_')+'?duration='+sortv, mode='cdaSearch', fanart=None, contextmenu=contextmenu)
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
 elif mode[0] =='SzukajNowe':
     d = xbmcgui.Dialog().input('Szukaj, podaj tytu\xc5\x82', type=xbmcgui.INPUT_ALPHANUM)
     if d:
         HistoryAdd(d)
-        ex_link='https://www.cda.pl/video/show/'+d.replace(' ','_')
+        ex_link='https://www.cda.pl/video/show/'+d.replace(' ','_')+'?duration='+sortv
         cdaSearch(ex_link)
 elif mode[0] =='SzukajUsun':
     HistoryDel(ex_link)
@@ -628,5 +636,22 @@ elif mode[0] == 'walk':
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
 elif mode[0] == 'folder':
     pass
+elif 'filtr' in mode[0]:
+	myMode = mode[0].split(":")[-1]
 
+	label=[u'wszystkie',u'poniżej 5 minut',u'powyżej 20 minut',u'powyżej 60 minut']
+	value=['all','krotkie','srednie','dlugie']	
+		
+	msg = 'Czas trwania'
+
+	sel = xbmcgui.Dialog().select(msg,label)
+	if sel>-1:
+		v = value[sel]
+		n = label[sel]
+	
+		my_addon.setSetting(myMode+'V',v)
+		my_addon.setSetting(myMode+'N',n)
+		xbmc.executebuiltin('XBMC.Container.Refresh')
+	else:
+		pass
 
