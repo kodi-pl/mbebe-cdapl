@@ -1,0 +1,101 @@
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, unicode_literals, print_function
+
+# Author: rysson <robert.kalinowski@sharkbits.com>
+# License: MIT
+
+from base import isnone, SingletonBase
+import json
+
+
+class EmptyIterator:
+    """Empty iterator, always stops."""
+
+    __slots__ = ()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise StopIteration
+
+
+class SafeNoneType(SingletonBase):
+    """Week None, nothing but in safe way, any attr and item is also SafeNone."""
+
+    __slots__ = ()
+
+    def __repr__(self):
+        return 'None'
+
+    def __bool__(self):
+        # Python 3
+        return False
+
+    # Python 2
+    __nonzero__ = __bool__
+
+    def __getattr__(self, key):
+        if isinstance(key, str) and key.startswith('_'):
+            return super().__getattr__(key)
+        return self
+
+    def __getitem__(self, key):
+        return self
+
+    def __len__(self):
+        return 0
+
+    def __iter__(self):
+        return EmptyIterator()
+
+    def __eq__(self, other):
+        if other is None or other is self:
+            return True
+        return isnone(other)
+
+    def _isnone_(self):
+        return True
+
+
+#: Safe None singleton object.
+SafeNone = SafeNoneType()
+
+
+class SafeList(list):
+    """List with safe access. Returns SafeNone instead exception."""
+
+    __slots__ = ()
+
+    def __getattr__(self, key):
+        if isinstance(key, str) and key.startswith('_'):
+            return super().__getattr__(key)
+        return SafeNone
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except (IndexError, TypeError):
+            return SafeNone
+
+
+class SafeDict(dict):
+    """Dict with safe access. Returns SafeNone instead exception."""
+
+    __slots__ = ()
+
+    def __getattr__(self, key):
+        if isinstance(key, str) and key.startswith('_'):
+            return super().__getattr__(key)
+        return self[key]
+
+    def __missing__(self, key):
+        return SafeNone
+
+
+def load_json_file(fname):
+    with open(fname, 'rb') as f:
+        return json.load(f, object_hook=SafeDict)
+
+if __name__ == '__main__':
+    print(SafeNone == SafeNone, bool(SafeNone))

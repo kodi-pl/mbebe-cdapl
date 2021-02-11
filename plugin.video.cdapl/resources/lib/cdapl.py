@@ -47,51 +47,10 @@ TIMEOUT = 10
 my_addon        = xbmcaddon.Addon()
 kukz =  my_addon.getSetting('loginCookie')
 COOKIEFILE = ''
-DATAFILE = ''
+addon_data = None
 sess= requests.Session()
 sess.cookies = cookielib.LWPCookieJar(COOKIEFILE)
 cj=sess.cookies
-_global_data = None
-
-
-def load_data():
-    global _global_data
-    if _global_data is None and DATAFILE:
-        try:
-            with open(DATAFILE, 'rb') as f:
-                _global_data = json.load(f)
-        except IOError:
-            pass
-    _global_data = _global_data or {}
-    return _global_data
-
-
-def save_data():
-    if DATAFILE:
-        with open(DATAFILE, 'wb') as f:
-            json.dump(_global_data, f)
-
-
-def get_data(key, default=''):
-    if _global_data is None:
-        load_data()
-    return _global_data.get(key, default)
-
-
-def set_data(key, value, save=True):
-    if _global_data is None:
-        load_data()
-    _global_data[key] = value
-    if save:
-        save_data()
-
-
-def clear_data(key):
-    if _global_data is None:
-        load_data()
-    if key in _global_data:
-        del _global_data[key]
-        save_data()
 
 
 def getUrl(url, data=None, cookies=None, refer=False, return_response=False):
@@ -407,17 +366,19 @@ def _scan_UserFolder(url, recursive=True, items=None, folders=None):
     fid = find_re(r'/folder/(\w+)(?:[?].*)?$', url) or 'root'
     content = getUrl(url)
     if "folderinputPassword" in content:
-        passkey = 'folder.%s.pass' % fid
-        passwd = get_data(passkey) or get_data('folder.lastpass')
-        if passwd:
-            # try tu use remembered password
-            content = getUrl(url, data={"folderinputPassword" : passwd})
-            if not content or 'folderinputPassword' in content:
-                passwd = ''
-                clear_data(passkey)
-            elif not get_data(passkey):
-                # save password matching to new folder
-                set_data(passkey, passwd)
+        passwd = None
+        if addon_data:
+            passkey = 'folders.folder.%s.pass' % fid
+            passwd = addon_data.get(passkey) or addon_data.get('folders.lastpass')
+            if passwd:
+                # try tu use remembered password
+                content = getUrl(url, data={"folderinputPassword" : passwd})
+                if not content or 'folderinputPassword' in content:
+                    passwd = ''
+                    addon_data.remove(passkey)
+                elif not addon_data.get(passkey):
+                    # save password matching to new folder
+                    addon_data.set(passkey, passwd)
         if not passwd:
             passwd = xbmcgui.Dialog().input(u'Hasło do folderu', type=xbmcgui.INPUT_ALPHANUM)
             content = getUrl(url, data={"folderinputPassword" : passwd})
@@ -425,9 +386,9 @@ def _scan_UserFolder(url, recursive=True, items=None, folders=None):
                 if not content or 'folderinputPassword' in content:
                     xbmcgui.Dialog().notification('Złe hasło', 'Hasło do folderu nie jest prawidłowe',
                                                   xbmcgui.NOTIFICATION_ERROR)
-                else:
-                    set_data(passkey, passwd, save=False)
-                    set_data('folder.lastpass', passwd)
+                elif addon_data:
+                    addon_data.set(passkey, passwd)
+                    addon_data.set('folders.lastpass', passwd)
     if items is None:
         items = []
     if folders is None:
@@ -692,22 +653,21 @@ def xpath(mydict, path=''):
     if path:
         try:
             for x in path.strip('/').split('/'):
-                elem = elem.get( x.decode('utf-8') )
+                elem = elem.get(x.decode('utf-8'))
         except:
             pass
     return elem
 
 
-def jsconWalk(data,path):
+def jsconWalk(data, path):
     lista_katalogow = []
     lista_pozycji=[]
 
-    elems = xpath(data,path)
-    if type(elems) is dict: # or type(elems) is OrderedDict:
+    elems = xpath(data, path)
+    if isinstance(elems, dict):
         # created directory
-        for e in elems.keys():
-            one=elems.get(e)
-            if type(one) is str or type(one) is unicode:    # another json file
+        for e, one in elems.iteritems():
+            if isinstance(one, basestring):
                 lista_katalogow.append( {'img':'','title':e,'url':"", "jsonfile" :one} )
             elif type(one) is dict and one.has_key('jsonfile'): # another json file v2
                 one['title']=e  # dodaj tytul
@@ -722,12 +682,16 @@ def jsconWalk(data,path):
                 lista_katalogow.append( {'img':'','title':e,'url':path+'/'+e,'fanart':''} )
         if lista_katalogow:
              lista_katalogow= sorted(lista_katalogow, key=lambda k: (k.get('idx',''),k.get('title','')))
-    if type(elems) is list:
+    elif type(elems) is list:
         print 'List items'
         for one in elems:
             # check if direct link or User folder:
             if one.has_key('url'):
-                lista_pozycji.append( one )
+                if 'folder' in one:
+                    # just link to folder, get no content
+                    lista_katalogow.append(one)
+                else:
+                    lista_pozycji.append(one)
             elif one.has_key('folder'):        #This is folder in cds.pl get content:
                 filtr_items = one.get('flter_item',{})
                 show_subfolders = one.get('subfoders',True)
@@ -743,9 +707,7 @@ def jsconWalk(data,path):
                 if show_items:
                     lista_pozycji.extend(items)
 
-    return (lista_pozycji,lista_katalogow)
-
-
+    return (lista_pozycji, lista_katalogow)
 
 
 def jsconWalk2(data,path):

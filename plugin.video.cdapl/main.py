@@ -6,15 +6,13 @@ import urlparse
 import xbmc, xbmcgui, xbmcaddon
 import xbmcplugin
 import json, time
+import StorageServer
+from resources.lib import cdapl as cda
+from resources.lib.udata import AddonUserData
 
-try:
-    import StorageServer
-except:
-    import storageserverdummy as StorageServer
+
 cache = StorageServer.StorageServer('cda')
 
-
-from resources.lib import cdapl as cda
 
 base_url        = sys.argv[0]
 addon_handle    = int(sys.argv[1])
@@ -27,24 +25,46 @@ RESOURCES   = PATH+'/resources/'
 MEDIA       = RESOURCES+'/media/'
 FAVORITE    = os.path.join(DATAPATH, 'favorites.json')
 premka =  my_addon.getSetting('premka')
+HISTORY_SIZE = 50
 
 sortv = my_addon.getSetting('sortV')
 sortn = my_addon.getSetting('sortN') if sortv else 'wszystkie'
 
 cda.COOKIEFILE = os.path.join(DATAPATH, 'cookie.cda')
-cda.DATAFILE = os.path.join(DATAPATH, 'data.json')
 
 SERVICE = 'cda'
 if not os.path.exists(DATAPATH):
     os.makedirs(DATAPATH)
 
-# def getUrl(url,data=None):
-#     req = urllib2.Request(url,data)
-#     req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.97 Safari/537.36')
-#     response = urllib2.urlopen(req)
-#     link = response.read()
-#     response.close()
-#     return link
+cda.addon_data = addon_data = AddonUserData(os.path.join(DATAPATH, 'data.json'))
+
+# Move search items from StorageServer cache to addon-data.
+_old_search_history = cache.get('history').split(';')
+if _old_search_history and all(_old_search_history):
+    addon_data.set('history.items', (addon_data.get('history.items') + _old_search_history)[:HISTORY_SIZE])
+    cache.delete('history')
+del _old_search_history
+
+# TODO:  REMOVE IT BEFORE RELESE!  It's temporary solution.
+# Move old folder passwords (2.7ry2) to new addon-data (2.7ry3+).
+for key in filter(lambda k: re.match(r'^folder\.\w+\.pass$', k), addon_data.data or {}):
+    addon_data.set('folders.%s' % key, addon_data.data[key])
+    del addon_data.data[key]
+
+
+def NN(n, word, *forms):
+    """
+    Translation Rules for Plurals for Polish language.
+    See: https://doc.qt.io/qt-5/i18n-plural-rules.html
+    >>> NN(number, 'pies', 'psy', 'psów')
+    """
+    forms = (word,) + forms + (word, word)
+    if n == 1:
+        return forms[0]
+    if n % 10 >= 2 and n % 10 <= 4 and (n % 100 < 10 or n % 100 > 20):
+        return forms[1]
+    return forms[2]
+
 
 def addLinkItem(name, url, mode, iconImage=None, infoLabels=False, contextO=['F_ADD'],IsPlayable=False,fanart=None,totalItems=1):
     u = build_url({'mode': mode, 'foldername': name, 'ex_link' : url})
@@ -84,6 +104,22 @@ def GetcontextMenuItemsXX(infoLabels,contextO,url,liz=None):
         contextMenuItems.append(('Zwiastun', 'XBMC.PlayMedia(%s)'%infoLabels.get('trailer')))
     return contextMenuItems
 
+def GetContextMenuFoldersXX(infoLabels, contextO):
+    menu = []
+    jdata = dict(infoLabels)
+    jdata.setdefault('folder', infoLabels.get('url'))
+    jdata = urllib.quote_plus(json.dumps(jdata))
+    if 'F_ADD' in contextO:
+        menu.append((u'[COLOR lightblue]Dodaj do Wybranych[/COLOR]',
+                     'RunPlugin(plugin://%s?mode=favoritesADD&ex_link=%s)' % (my_addon_id, jdata)))
+    if 'F_REM' in contextO:
+        menu.append((u'[COLOR red]Usuń z Wybranych[/COLOR]',
+                     'RunPlugin(plugin://%s?mode=favoritesREM&ex_link=%s)' % (my_addon_id, jdata)))
+    if 'F_DEL' in contextO:
+        menu.append((u'[COLOR red]Usuń Wszystko[/COLOR]',
+                     'RunPlugin(plugin://%s?mode=favoritesREM&ex_link=all)' % (my_addon_id)))
+    return menu
+
 def add_Item(name, url, mode, iconImage=None, infoLabels=False, contextO=['F_ADD'],IsPlayable=False,fanart=None,totalItems=1,json_file=''):
     u = build_url({'mode': mode, 'foldername': name, 'ex_link' : url, 'json_file' : json_file})
     if iconImage==None:
@@ -104,27 +140,27 @@ def add_Item(name, url, mode, iconImage=None, infoLabels=False, contextO=['F_ADD
 
 def addDir(name, ex_link=None, json_file='', mode='walk', iconImage=None, fanart='',
            infoLabels=False, totalItems=1, contextmenu=None):
-    url = build_url({'mode': mode, 'foldername': name, 'ex_link' : ex_link, 'json_file' : json_file})
+    url = build_url({'mode': mode, 'foldername': name, 'ex_link': ex_link, 'json_file': json_file})
     li = xbmcgui.ListItem(label=name, iconImage='DefaultFolder.png')
-    if iconImage==None:
-        iconImage='DefaultFolder.png'
+    if iconImage is None:
+        iconImage = 'DefaultFolder.png'
     elif not iconImage.startswith('http'):
         if not os.path.exists(MEDIA + iconImage) and os.path.exists(RESOURCES + iconImage):
             iconImage = RESOURCES + iconImage
         else:
             iconImage = MEDIA + iconImage
     li = xbmcgui.ListItem(name, iconImage=iconImage, thumbnailImage=iconImage)
-    li.setArt({ 'poster': iconImage, 'thumb' : iconImage, 'icon' : iconImage,'banner':iconImage})
+    li.setArt({'poster': iconImage, 'thumb': iconImage, 'icon': iconImage, 'banner': iconImage})
     if not infoLabels:
-       infoLabels={'title': name}
+        infoLabels = {'title': name}
     li.setInfo(type='Video', infoLabels=infoLabels)
     if fanart:
-        li.setProperty('fanart_image', fanart )
+        li.setProperty('fanart_image', fanart)
     if contextmenu:
-        contextMenuItems=contextmenu
+        contextMenuItems = contextmenu
         li.addContextMenuItems(contextMenuItems, replaceItems=True)
-    ok = xbmcplugin.addDirectoryItem(handle=addon_handle, url=url,listitem=li, isFolder=True)
-    xbmcplugin.addSortMethod(addon_handle, sortMethod=xbmcplugin.SORT_METHOD_DATE, label2Mask = '%D, %P, %R')
+    ok = xbmcplugin.addDirectoryItem(handle=addon_handle, url=url, listitem=li, isFolder=True)
+    xbmcplugin.addSortMethod(addon_handle, sortMethod=xbmcplugin.SORT_METHOD_DATE, label2Mask='%D, %P, %R')
     return ok
 
 def SelSort():
@@ -352,6 +388,9 @@ def mainWalk(ex_link='', json_file='', fname=''):
     folders = []
     contextmenu = []
     pagination = (False, False)
+    contextO = ['F_ADD']
+    if fname == 'Wybrane':
+        contextO = ['F_REM', 'F_DEL']
     if ex_link == '' or ex_link.startswith('/'):
         data = cda.ReadJsonFile(json_file) if json_file else get_Root()
         items, folders = cda.jsconWalk(data, ex_link)
@@ -371,18 +410,16 @@ def mainWalk(ex_link='', json_file='', fname=''):
         tmp_json_file = f.get('jsonfile', json_file)
         title = f.get('title') + f.get('count', '')
         f['plot'] = '%s\n%s' % (f.get('plot', ''), f.get('update', ''))
+        contextmenu = []
         if f.get('lib'):
-            contextmenu = [(u'[COLOR lightblue]Dodaj zawartość do Biblioteki[/COLOR]',
-                            'RunPlugin(plugin://%s?mode=AddRootFolder&json_file=%s)' %
-                            (my_addon_id, urllib.quote_plus(tmp_json_file)))]
-        else:
-            contextmenu = []
+            contextmenu.append((u'[COLOR lightblue]Dodaj zawartość do Biblioteki[/COLOR]',
+                                'RunPlugin(plugin://%s?mode=AddRootFolder&json_file=%s)' %
+                                (my_addon_id, urllib.quote_plus(tmp_json_file))))
+        if f.get('url'):
+            contextmenu.extend(GetContextMenuFoldersXX(f, contextO))
         addDir(title, ex_link=f.get('url'), json_file=tmp_json_file, mode='walk',
                iconImage=f.get('img', ''), infoLabels=f, fanart=f.get('fanart', ''),
                contextmenu=contextmenu, totalItems=N_folders)
-    contextO = ['F_ADD']
-    if fname == '[COLOR khaki]Wybrane[/COLOR]':
-        contextO = ['F_REM', 'F_DEL']
     N_items = len(items)
     list_of_items = []
     for item in items:
@@ -438,30 +475,34 @@ def logincda():
 
 
 def HistoryLoad():
-    return cache.get('history').split(';')
-
-def dekodowanie(t):
-    return t.encode('utf-8') if isinstance(t, unicode) else t
+    return addon_data.get('history.items', [])
 
 def HistoryAdd(entry):
+    if not isinstance(entry, unicode):
+        entry = entry.decode('utf-8')
     history = HistoryLoad()
-    if history == ['']:
-        history = []
-    history.insert(0, dekodowanie(entry))
-    try:
-        cache.set('history',';'.join(history[:50]))
-    except:
-        pass
+    history.insert(0, entry)
+    addon_data.set('history.items', history[:HISTORY_SIZE])
 
 def HistoryDel(entry):
-    history = HistoryLoad()
-    if history:
-        cache.set('history',';'.join(history[:50]))
-    else:
-        HistoryClear()
+    if not isinstance(entry, unicode):
+        entry = entry.decode('utf-8')
+    history = [item for item in HistoryLoad() if item != entry]
+    addon_data.set('history.items', history[:HISTORY_SIZE])
 
 def HistoryClear():
-    cache.delete('history')
+    addon_data.remove('history.items')
+
+
+def save_favorites(jdata):
+    try:
+        with open(FAVORITE, 'w') as outfile:
+            json.dump(jdata, outfile, indent=2, sort_keys=True)
+        return True
+    except Exception as exc:
+        xbmcgui.Dialog().notification(u'Błąd zapisu Wybranych', repr(exc), xbmcgui.NOTIFICATION_ERROR)
+    return False
+
 
 xbmcplugin.setContent(addon_handle, 'movies')
 mode = args.get('mode', None)
@@ -472,14 +513,16 @@ json_file = args.get('json_file',[''])[0]
 if mode is None:
     logincda()
     mainWalk()
-    addDir('[COLOR white][B]Filmy Premium[/B][/COLOR]',ex_link='', mode='premiumKat',iconImage='MediaPremium.png')
+    addDir('[COLOR white][B]Filmy Premium[/B][/COLOR]', ex_link='', mode='premiumKat',
+           iconImage='MediaPremium.png')
     userFolderADD()
-    addDir('Wybrane',ex_link='', json_file=FAVORITE, mode='walk',  iconImage='cdaUlubione.png',infoLabels={'plot':'Lista wybranych pozycji. Szybki dostep, lokalna baza danych.'})
-    addDir('Szukaj',ex_link='', mode='Szukaj',iconImage='Szukaj_cda.png')
+    addDir('Wybrane', ex_link='', json_file=FAVORITE, mode='walk', iconImage='cdaUlubione.png',
+           infoLabels={'plot': 'Lista wybranych pozycji. Szybki dostep, lokalna baza danych.'})
+    addDir('Szukaj', ex_link='', mode='Szukaj', iconImage='Szukaj_cda.png')
     if my_addon.getSetting('library.mainmenu') == 'true':
-        addDir('-=Biblioteka=-','','','Library',iconImage='library.png')
-    addLinkItem('-=Opcje=-','','Opcje',iconImage=MEDIA+'Opcje.png')
-    xbmcplugin.endOfDirectory(addon_handle,succeeded=True)
+        addDir('-=Biblioteka=-', '', '', 'Library', iconImage='library.png')
+    addLinkItem('-=Opcje=-', '', 'Opcje', iconImage=MEDIA+'Opcje.png')
+    xbmcplugin.endOfDirectory(addon_handle, succeeded=True)
 elif mode[0] == 'Library':
     from resources.lib import libtools
     lib_mov = libtools.libmovies()
@@ -547,37 +590,47 @@ elif mode[0] == 'premiumFilm':
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
 elif mode[0] == 'favoritesADD':
     jdata = cda.ReadJsonFile(FAVORITE)
-    new_item=json.loads(ex_link)
-    new_item['title'] = new_item.get('title','').replace(new_item.get('label',''),'').replace(new_item.get('msg',''),'')
-    dodac = [x for x in jdata if new_item['title']== x.get('title','')]
-    if dodac:
-        xbmc.executebuiltin('Notification([COLOR pink]Ju\xc5\xbc jest w Wybranych[/COLOR], ' + new_item.get('title','').encode('utf-8') + ', 200)')
+    new = json.loads(ex_link)
+    new['title'] = new.get('title', '').replace(new.get('label', ''), '').replace(new.get('msg', ''), '')
+    if any(e.get('url', e.get('folder')) == new.get('url', new.get('folder')) for e in jdata):
+        xbmcgui.Dialog().notification(u'[COLOR pink]Już jest w Wybranych[/COLOR]', new.get('title', ''),
+                                      xbmcgui.NOTIFICATION_WARNING)
     else:
-        jdata.append(new_item)
-        with open(FAVORITE, 'w') as outfile:
-            json.dump(jdata, outfile, indent=2, sort_keys=True)
-            xbmc.executebuiltin('Notification(Dodano Do Wybranych, ' + new_item.get('title','').encode('utf-8') + ', 200)')
+        jdata.append(new)
+        if save_favorites(jdata):
+            xbmcgui.Dialog().notification(u'Dodano Do Wybranych', new.get('title',''),
+                                          xbmcgui.NOTIFICATION_INFO, 3000)
 elif mode[0] == 'favoritesREM':
     if ex_link=='all':
-        yes = xbmcgui.Dialog().yesno('??','Usu\xc5\x84 wszystkie filmy z Wybranych?')
-        if yes:
-            debug=1
+        if xbmcgui.Dialog().yesno(u'[COLOR red]Usuwanie z Wybranych[/COLOR]',
+                                  u'Usuń wszystkie filmy z Wybranych?'):
+            if save_favorites(jdata):
+                xbmcgui.Dialog().notification(u'Usunięto całą listę Wybranych', '',
+                                              xbmcgui.NOTIFICATION_INFO, 3000)
+
     else:
         jdata = cda.ReadJsonFile(FAVORITE)
-        remItem=json.loads(ex_link)
-        to_remove=[]
-        for i in xrange(len(jdata)):
-            if jdata[i].get('title') in remItem.get('title'):
-                to_remove.append(i)
-        if len(to_remove)>1:
-            yes = xbmcgui.Dialog().yesno('??',remItem.get('title'),'Usu\xc5\x84 %d pozycji z Wybranych?' % len(to_remove))
-        else:
-            yes = True
-        if yes:
-            for i in reversed(to_remove):
-                jdata.pop(i)
-            with open(FAVORITE, 'w') as outfile:
-                json.dump(jdata, outfile, indent=2, sort_keys=True)
+        rem = json.loads(ex_link)
+        ndata = [item for item in jdata
+                 if item.get('url', item.get('folder')) != rem.get('url', rem.get('folder'))]
+        if jdata != ndata:
+            n = len(jdata) - len(ndata)
+            if xbmcgui.Dialog().yesno(u'[COLOR red]Usuwanie z Wybranych[/COLOR]', rem.get('title'),
+                                      u'Usunąć %d %s z Wybranych?' % (n, NN(n, u'pozycję', u'pozycje', u'pozycji'))):
+                if save_favorites(ndata):
+                    xbmcgui.Dialog().notification(u'Usunięto z Wybranych', rem.get('title',''),
+                                                  xbmcgui.NOTIFICATION_INFO, 3000)
+
+        # to_remove = []
+        # for i in xrange(len(jdata)):
+        #     if jdata[i].get('title') in remItem.get('title'):
+        #         to_remove.append(i)
+        # if len(to_remove) and xbmcgui.Dialog().yesno('??', remItem.get('title'),
+        #                                              'Usuń %d pozycji z Wybranych?' % len(to_remove)):
+        #     for i in reversed(to_remove):
+        #         jdata.pop(i)
+        #     with open(FAVORITE, 'w') as outfile:
+        #         json.dump(jdata, outfile, indent=2, sort_keys=True)
     xbmc.executebuiltin('XBMC.Container.Refresh')
 elif mode[0]=='cdaSearch':
     cdaSearch(ex_link)
@@ -590,8 +643,8 @@ elif mode[0] =='Szukaj':
     if not historia == ['']:
         for entry in historia:
             contextmenu = []
-            contextmenu.append(('Usu\xc5\x84', 'XBMC.Container.Update(%s)'% build_url({'mode': 'SzukajUsun', 'ex_link' : entry})),)
-            contextmenu.append(('Usu\xc5\x84 ca\xc5\x82\xc4\x85 histori\xc4\x99', 'XBMC.Container.Update(%s)' % build_url({'mode': 'SzukajUsunAll'})),)
+            contextmenu.append((u'Usuń', 'XBMC.Container.Update(%s)' % build_url({'mode': 'SzukajUsun', 'ex_link': entry})),)
+            contextmenu.append((u'Usuń całą historię', 'XBMC.Container.Update(%s)' % build_url({'mode': 'SzukajUsunAll'})),)
             addDir(name=entry, ex_link='http://www.cda.pl/video/show/'+entry.replace(' ','_')+'?duration='+sortv, mode='cdaSearch', fanart=None, contextmenu=contextmenu)
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
 elif mode[0] =='SzukajNowe':
@@ -693,5 +746,9 @@ elif 'filtr' in mode[0]:
         xbmc.executebuiltin('XBMC.Container.Refresh')
     else:
         pass
+
+
+# Save changed addon data.
+addon_data.save(indent=2)
 
 # import web_pdb; web_pdb.set_trace()
