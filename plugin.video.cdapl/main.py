@@ -21,8 +21,10 @@ my_addon        = xbmcaddon.Addon()
 my_addon_id     = my_addon.getAddonInfo('id')
 PATH        = my_addon.getAddonInfo('path')
 DATAPATH    = xbmc.translatePath(my_addon.getAddonInfo('profile')).decode('utf-8')
-RESOURCES   = PATH+'/resources/'
-MEDIA       = RESOURCES+'/media/'
+RESOURCES   = os.path.join(PATH, 'resources')
+MEDIA       = os.path.join(RESOURCES, 'media')
+if not os.path.exists(MEDIA):
+    MEDIA = RESOURCES
 FAVORITE    = os.path.join(DATAPATH, 'favorites.json')
 premka =  my_addon.getSetting('premka')
 HISTORY_SIZE = 50
@@ -64,6 +66,11 @@ def NN(n, word, *forms):
     if n % 10 >= 2 and n % 10 <= 4 and (n % 100 < 10 or n % 100 > 20):
         return forms[1]
     return forms[2]
+
+
+def media(name):
+    """Returns full path to media file."""
+    return os.path.join(MEDIA, name)
 
 
 def addLinkItem(name, url, mode, iconImage=None, infoLabels=False, contextO=['F_ADD'],IsPlayable=False,fanart=None,totalItems=1):
@@ -145,10 +152,7 @@ def addDir(name, ex_link=None, json_file='', mode='walk', iconImage=None, fanart
     if iconImage is None:
         iconImage = 'DefaultFolder.png'
     elif not iconImage.startswith('http'):
-        if not os.path.exists(MEDIA + iconImage) and os.path.exists(RESOURCES + iconImage):
-            iconImage = RESOURCES + iconImage
-        else:
-            iconImage = MEDIA + iconImage
+        iconImage = os.path.join(MEDIA, iconImage)
     li = xbmcgui.ListItem(name, iconImage=iconImage, thumbnailImage=iconImage)
     li.setArt({'poster': iconImage, 'thumb': iconImage, 'icon': iconImage, 'banner': iconImage})
     if not infoLabels:
@@ -404,7 +408,7 @@ def mainWalk(ex_link='', json_file='', fname=''):
         items, folders, pagination = cda.get_UserFolder_historia(ex_link)
     if pagination[0]:
         addLinkItem('[COLOR gold] << Poprzednia strona [/COLOR]', url=pagination[0], mode='__page:walk',
-                    iconImage='prev.png', infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
+                    iconImage=media('prev.png'), infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
     N_folders = len(items)
     for f in folders:
         tmp_json_file = f.get('jsonfile', json_file)
@@ -429,7 +433,7 @@ def mainWalk(ex_link='', json_file='', fname=''):
     xbmcplugin.addDirectoryItems(handle=addon_handle, items=list_of_items, totalItems=N_items)
     if pagination[1]:
         addLinkItem(u'[COLOR gold]Następna strona >> [/COLOR] ', url=pagination[1], mode='__page:walk',
-                    iconImage='next.png', infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
+                    iconImage=media('next.png'), infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
     xbmcplugin.addSortMethod(addon_handle, sortMethod=xbmcplugin.SORT_METHOD_UNSORTED, label2Mask='%D, %P, %R')
     SelSort()
     return 1
@@ -510,7 +514,9 @@ fname = args.get('foldername',[''])[0]
 ex_link = args.get('ex_link',[''])[0]
 json_file = args.get('json_file',[''])[0]
 
+xbmc.log('CDA: mode=%r, link=%r, json=%r' % (mode, ex_link, json_file))
 if mode is None:
+    xbmcplugin.setContent(addon_handle, 'addon')
     logincda()
     mainWalk()
     addDir('[COLOR white][B]Filmy Premium[/B][/COLOR]', ex_link='', mode='premiumKat',
@@ -521,19 +527,19 @@ if mode is None:
     addDir('Szukaj', ex_link='', mode='Szukaj', iconImage='Szukaj_cda.png')
     if my_addon.getSetting('library.mainmenu') == 'true':
         addDir('-=Biblioteka=-', '', '', 'Library', iconImage='library.png')
-    addLinkItem('-=Opcje=-', '', 'Opcje', iconImage=MEDIA+'Opcje.png')
+    # addLinkItem('-=Opcje=-', '', 'Opcje', iconImage=media('Opcje.png'))
     xbmcplugin.endOfDirectory(addon_handle, succeeded=True)
 elif mode[0] == 'Library':
     from resources.lib import libtools
     lib_mov = libtools.libmovies()
-    addLinkItem(lib_mov.service_online,'','',iconImage=MEDIA+'Opcje.png',infoLabels={'plot':'Serwis mo\xc5\xbce wymaga\xc4\x87 ponownego uruchomienia KODI je\xc5\x9bli zosta\xc5\x82 w\xc5\x82\xc4\x85czony lub wy\xc5\x82aczony po raz pierwszy.'})
-    addLinkItem(lib_mov.ilosc_filmow,'','',iconImage=MEDIA+'Opcje.png',infoLabels={'plot':'Ilo\xc5\x9b\xc4\x87 pozycji w bibliotece. Faktyczna liczba mo\xc5\xbce si\xc4\x99 ro\xc5\xbcni\xc4\x87 je\xc5\x9bli movie srapper nie rozpozna\xc5\x82 filmu. Zaleca si\xc4\x99 u\xc5\xbcywanie Filmweb scrappera z Regss repozytorium.'})
-    addLinkItem(lib_mov.ostat_aktualizacja,'','',iconImage=MEDIA+'Opcje.png')
-    addLinkItem(lib_mov.aktualizacja_co_ile,'','',iconImage=MEDIA+'Opcje.png')
-    addLinkItem(lib_mov.nie_sa_sprawdzane,'','',iconImage=MEDIA+'Opcje.png')
-    addLinkItem(lib_mov.nast_szukanie,'','',iconImage=MEDIA+'Opcje.png')
-    addLinkItem('[B][Szukaj nowych film\xc3\xb3w][/B]','','GetNewMovies',iconImage=MEDIA+'library.png',infoLabels={'plot':'Metoda przeszukuje [B]X[/B] pierwszych stron z filmami w serwisie cda.pl w poszukuwaniu nowych pozycji.\n\nR\xc4\x99czne uruchomienie jednej akcji serwisu.'})
-    addLinkItem('[B][Sprawd\xc5\xba \xc5\xbar\xc3\xb3d\xc5\x82a film\xc3\xb3w][/B]','','CheckLinksInLibrary',iconImage=MEDIA+'library.png',infoLabels={'plot':'Metoda sprawdza czy \xc5\xbar\xc3\xb3d\xc5\x82a w bibliotece s\xc4\x85 jeszcze aktulane. Ka\xc5\xbcda pozycja jest indywidualnie testowana raz na [B]X[/B] dni.\n\nR\xc4\x99czne uruchomienie jednej akcji serwisu.'})
+    addLinkItem(lib_mov.service_online,'','',iconImage=media('Opcje.png'),infoLabels={'plot':'Serwis mo\xc5\xbce wymaga\xc4\x87 ponownego uruchomienia KODI je\xc5\x9bli zosta\xc5\x82 w\xc5\x82\xc4\x85czony lub wy\xc5\x82aczony po raz pierwszy.'})
+    addLinkItem(lib_mov.ilosc_filmow,'','',iconImage=media('Opcje.png'),infoLabels={'plot':'Ilo\xc5\x9b\xc4\x87 pozycji w bibliotece. Faktyczna liczba mo\xc5\xbce si\xc4\x99 ro\xc5\xbcni\xc4\x87 je\xc5\x9bli movie srapper nie rozpozna\xc5\x82 filmu. Zaleca si\xc4\x99 u\xc5\xbcywanie Filmweb scrappera z Regss repozytorium.'})
+    addLinkItem(lib_mov.ostat_aktualizacja,'','',iconImage=media('Opcje.png'))
+    addLinkItem(lib_mov.aktualizacja_co_ile,'','',iconImage=media('Opcje.png'))
+    addLinkItem(lib_mov.nie_sa_sprawdzane,'','',iconImage=media('Opcje.png'))
+    addLinkItem(lib_mov.nast_szukanie,'','',iconImage=media('Opcje.png'))
+    addLinkItem('[B][Szukaj nowych film\xc3\xb3w][/B]','','GetNewMovies',iconImage=media('library.png'),infoLabels={'plot':'Metoda przeszukuje [B]X[/B] pierwszych stron z filmami w serwisie cda.pl w poszukuwaniu nowych pozycji.\n\nR\xc4\x99czne uruchomienie jednej akcji serwisu.'})
+    addLinkItem('[B][Sprawd\xc5\xba \xc5\xbar\xc3\xb3d\xc5\x82a film\xc3\xb3w][/B]','','CheckLinksInLibrary',iconImage=media('library.png'),infoLabels={'plot':'Metoda sprawdza czy \xc5\xbar\xc3\xb3d\xc5\x82a w bibliotece s\xc4\x85 jeszcze aktulane. Ka\xc5\xbcda pozycja jest indywidualnie testowana raz na [B]X[/B] dni.\n\nR\xc4\x99czne uruchomienie jednej akcji serwisu.'})
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True)
 elif mode[0].startswith('_info_'):
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
@@ -543,6 +549,7 @@ elif mode[0].startswith('__page:'):
     xbmc.executebuiltin('XBMC.Container.Refresh(%s)' % url)
     xbmcplugin.endOfDirectory(addon_handle, succeeded=True)
 elif mode[0] == 'premiumKat':
+    xbmcplugin.setContent(addon_handle, 'addon')
     try:
         folders=cda.premium_Katagorie()
     except:folders=[]
@@ -662,6 +669,7 @@ elif mode[0] == 'SzukajUsunAll':
     xbmc.executebuiltin('XBMC.Container.Refresh(%s)'%  build_url({'mode': 'Szukaj'}))
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
 elif mode[0] == 'MojeCDA':
+    xbmcplugin.setContent(addon_handle, 'addon')
     u = my_addon.getSetting('username') or my_addon.getSetting('user')
     if u:
         ulink = 'https://www.cda.pl/' + u
