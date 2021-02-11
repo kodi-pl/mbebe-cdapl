@@ -25,19 +25,18 @@ PATH        = my_addon.getAddonInfo('path')
 DATAPATH    = xbmc.translatePath(my_addon.getAddonInfo('profile')).decode('utf-8')
 RESOURCES   = PATH+'/resources/'
 MEDIA       = RESOURCES+'/media/'
-FAVORITE    = os.path.join(DATAPATH,'favorites.json')
+FAVORITE    = os.path.join(DATAPATH, 'favorites.json')
 premka =  my_addon.getSetting('premka')
 
 sortv = my_addon.getSetting('sortV')
 sortn = my_addon.getSetting('sortN') if sortv else 'wszystkie'
 
-cda.COOKIEFILE = DATAPATH + 'cookie.cda'
+cda.COOKIEFILE = os.path.join(DATAPATH, 'cookie.cda')
+cda.DATAFILE = os.path.join(DATAPATH, 'data.json')
 
-
-SERVICE     = 'cda'
+SERVICE = 'cda'
 if not os.path.exists(DATAPATH):
-        os.makedirs(DATAPATH)
-cda.COOKIEFILE  = os.path.join(DATAPATH,'cookie.cda')
+    os.makedirs(DATAPATH)
 
 # def getUrl(url,data=None):
 #     req = urllib2.Request(url,data)
@@ -358,40 +357,43 @@ def mainWalk(ex_link='', json_file='', fname=''):
         items, folders = cda.jsconWalk(data, ex_link)
     if 'folder' in ex_link or 'ulubione' in ex_link:
         recursive = (my_addon.getSetting('UserFolder.content.paginatoin') != 'true')
-        items, folders, pagination = cda.get_UserFolder_content(
-            urlF        = ex_link,
-            recursive   = recursive,
-            filtr_items = {})
+        items, folders, pagination = cda.get_UserFolder_content(urlF=ex_link, recursive=recursive,
+                                                                filtr_items={})
     elif 'obserwowani' in ex_link:
         items, folders = cda.get_UserFolder_obserwowani(ex_link)
     elif '/historia' in ex_link or '/obejrzyj-pozniej' in ex_link:
-        items, folders = cda.get_UserFolder_historia(ex_link)
+        items, folders, pagination = cda.get_UserFolder_historia(ex_link)
     if pagination[0]:
-        addLinkItem('[COLOR gold] << Poprzednia strona [/COLOR]', url=pagination[1], mode='__page:walk',
+        addLinkItem('[COLOR gold] << Poprzednia strona [/COLOR]', url=pagination[0], mode='__page:walk',
                     iconImage='prev.png', infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
     N_folders = len(items)
     for f in folders:
-        tmp_json_file = f.get('jsonfile',json_file)
-        title = f.get('title') + f.get('count','')
-        f['plot'] = f.get('plot','') + '\n' + f.get('update','')
-        if f.get('lib',False):
-            contextmenu = [('[COLOR lightblue]Dodaj zawarto\xc5\x9b\xc4\x87 do Biblioteki[/COLOR]', 'RunPlugin(plugin://%s?mode=AddRootFolder&json_file=%s)'%(my_addon_id,urllib.quote_plus(tmp_json_file)))]
+        tmp_json_file = f.get('jsonfile', json_file)
+        title = f.get('title') + f.get('count', '')
+        f['plot'] = '%s\n%s' % (f.get('plot', ''), f.get('update', ''))
+        if f.get('lib'):
+            contextmenu = [(u'[COLOR lightblue]Dodaj zawartość do Biblioteki[/COLOR]',
+                            'RunPlugin(plugin://%s?mode=AddRootFolder&json_file=%s)' %
+                            (my_addon_id, urllib.quote_plus(tmp_json_file)))]
         else:
             contextmenu = []
-        addDir(title,ex_link=f.get('url'), json_file=tmp_json_file, mode='walk', iconImage=f.get('img',''),infoLabels=f,fanart=f.get('fanart',''),contextmenu=contextmenu,totalItems=N_folders)
-    contextO=['F_ADD']
-    if fname=='[COLOR khaki]Wybrane[/COLOR]':
-        contextO=['F_REM','F_DEL']
-    N_items=len(items)
-    list_of_items=[]
+        addDir(title, ex_link=f.get('url'), json_file=tmp_json_file, mode='walk',
+               iconImage=f.get('img', ''), infoLabels=f, fanart=f.get('fanart', ''),
+               contextmenu=contextmenu, totalItems=N_folders)
+    contextO = ['F_ADD']
+    if fname == '[COLOR khaki]Wybrane[/COLOR]':
+        contextO = ['F_REM', 'F_DEL']
+    N_items = len(items)
+    list_of_items = []
     for item in items:
         list_of_items.append(add_Item(name=item.get('title').encode('utf-8'), url=item.get('url'), mode='decodeVideo',
                                       contextO=contextO, iconImage=item.get('img'), infoLabels=item, IsPlayable=True,
                                       fanart=item.get('img')))
-    xbmcplugin.addDirectoryItems(handle=addon_handle, items = list_of_items ,totalItems=N_items)
+    xbmcplugin.addDirectoryItems(handle=addon_handle, items=list_of_items, totalItems=N_items)
     if pagination[1]:
-        addLinkItem('[COLOR gold]Nast\xc4\x99pna strona >> [/COLOR] ', url=pagination[1], mode='__page:walk', iconImage='next.png', infoLabels=False, contextO=[],IsPlayable=False,fanart=None,totalItems=1)
-    xbmcplugin.addSortMethod(addon_handle, sortMethod=xbmcplugin.SORT_METHOD_UNSORTED, label2Mask = '%D, %P, %R')
+        addLinkItem(u'[COLOR gold]Następna strona >> [/COLOR] ', url=pagination[1], mode='__page:walk',
+                    iconImage='next.png', infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
+    xbmcplugin.addSortMethod(addon_handle, sortMethod=xbmcplugin.SORT_METHOD_UNSORTED, label2Mask='%D, %P, %R')
     SelSort()
     return 1
 
@@ -492,11 +494,11 @@ elif mode[0] == 'Library':
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True)
 elif mode[0].startswith('_info_'):
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
-elif mode[0].startswith('__page'):
-    my_mode=mode[0].split(':')[-1]
-    url = build_url({'mode': my_mode, 'foldername': fname, 'ex_link' : ex_link, 'json_file' : json_file})
-    xbmc.executebuiltin('XBMC.Container.Refresh(%s)'% url)
-    xbmcplugin.endOfDirectory(addon_handle,succeeded=True)
+elif mode[0].startswith('__page:'):
+    my_mode = mode[0].split(':')[-1]
+    url = build_url({'mode': my_mode, 'foldername': fname, 'ex_link': ex_link, 'json_file': json_file})
+    xbmc.executebuiltin('XBMC.Container.Refresh(%s)' % url)
+    xbmcplugin.endOfDirectory(addon_handle, succeeded=True)
 elif mode[0] == 'premiumKat':
     try:
         folders=cda.premium_Katagorie()
@@ -609,11 +611,12 @@ elif mode[0] == 'SzukajUsunAll':
 elif mode[0] == 'MojeCDA':
     u = my_addon.getSetting('username') or my_addon.getSetting('user')
     if u:
-        addDir(u'Folder główny', ex_link='https://www.cda.pl/'+u+'/folder-glowny?type=pliki', mode='walk', iconImage='cdaMoje.png')
-        addDir(u'Ulubione', ex_link='https://www.cda.pl/'+u+'/ulubione/folder-glowny?type=pliki', mode='walk', iconImage='cdaUlubione.png')
-        addDir(u'Obserwowani użytkownicy', ex_link='https://www.cda.pl/'+u+'/obserwowani', mode='walk', iconImage='cdaObserwowani.png')
-        addDir(u'Historia (oglądane)', ex_link='https://www.cda.pl/'+u+'/historia', mode='walk', iconImage='cdaHistoria.png')
-        addDir(u'Obejrzyj później', ex_link='https://www.cda.pl/'+u+'/obejrzyj-pozniej', mode='walk', iconImage='cdaPozniej.png')
+        ulink = 'https://www.cda.pl/' + u
+        addDir(u'Folder główny', ex_link=ulink+'/folder-glowny?type=pliki', mode='walk', iconImage='cdaMoje.png')
+        addDir(u'Ulubione', ex_link=ulink+'/ulubione/folder-glowny?type=pliki', mode='walk', iconImage='cdaUlubione.png')
+        # addDir(u'Obserwowani użytkownicy', ex_link=ulink+'/obserwowani', mode='walk', iconImage='cdaObserwowani.png')
+        addDir(u'Historia oglądania', ex_link=ulink+'/historia', mode='walk', iconImage='cdaHistoria.png')
+        addDir(u'Obejrzyj później', ex_link=ulink+'/obejrzyj-pozniej', mode='walk', iconImage='cdaPozniej.png')
     xbmcplugin.endOfDirectory(addon_handle, succeeded=True)
 elif mode[0] == 'decodeVideo':
     decodeVideo(ex_link)
@@ -691,3 +694,4 @@ elif 'filtr' in mode[0]:
     else:
         pass
 
+# import web_pdb; web_pdb.set_trace()

@@ -2,12 +2,14 @@
 
 import sys
 from collections import namedtuple
+from multiprocessing.pool import ThreadPool
 import cookielib
 import urllib2, urllib
 import re, os
 import json
 import jsunpack
 import xbmcaddon
+import xbmcgui
 from urllib import unquote
 import requests
 
@@ -18,17 +20,81 @@ Folder = namedtuple('Folder', 'name id url')
 #: Login status info tuple
 LoginInfo = namedtuple('LoginInfo', 'logged premium username')
 
+#: Web Request
+Request = namedtuple('Request', 'url data headers id')
+Request.__new__.__defaults__ = (None, None, None)
+
+#: Web Response
+Response = namedtuple('Response', 'content status req')
+Response.__new__.__defaults__ = (None, )
+Response.url = property(lambda self: self.req.url)
+
+
+#: Regex type
+regex = type(re.search('', ''))
+
+
+def find_re(pattern, text, default=''):
+    """Search regex pattern, return first sub-expr or whole found text or default."""
+    if not isinstance(pattern, regex):
+        pattern = re.compile(pattern)
+    rx = pattern.search(text)
+    return rx.group(1 if rx.groups() else 0) if rx else default
+
 
 BASEURL='https://www.cda.pl'
 TIMEOUT = 10
 my_addon        = xbmcaddon.Addon()
 kukz =  my_addon.getSetting('loginCookie')
 COOKIEFILE = ''
+DATAFILE = ''
 sess= requests.Session()
 sess.cookies = cookielib.LWPCookieJar(COOKIEFILE)
 cj=sess.cookies
+_global_data = None
 
-def getUrl(url, data=None, cookies=None, Refer=False):
+
+def load_data():
+    global _global_data
+    if _global_data is None and DATAFILE:
+        try:
+            with open(DATAFILE, 'rb') as f:
+                _global_data = json.load(f)
+        except IOError:
+            pass
+    _global_data = _global_data or {}
+    return _global_data
+
+
+def save_data():
+    if DATAFILE:
+        with open(DATAFILE, 'wb') as f:
+            json.dump(_global_data, f)
+
+
+def get_data(key, default=''):
+    if _global_data is None:
+        load_data()
+    return _global_data.get(key, default)
+
+
+def set_data(key, value, save=True):
+    if _global_data is None:
+        load_data()
+    _global_data[key] = value
+    if save:
+        save_data()
+
+
+def clear_data(key):
+    if _global_data is None:
+        load_data()
+    if key in _global_data:
+        del _global_data[key]
+        save_data()
+
+
+def getUrl(url, data=None, cookies=None, refer=False, return_response=False):
     if not cookies and kukz:
         cookies = kukz
     elif COOKIEFILE and os.path.exists(COOKIEFILE):
@@ -41,20 +107,32 @@ def getUrl(url, data=None, cookies=None, Refer=False):
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
         'TE': 'Trailers',}
-    if Refer:
+    if refer:
         headersok.update({'Referer': url, 'X-Requested-With': 'XMLHttpRequest', 'Content-Type':'application/json'})
 
     if cookies:
         headersok.update({'Cookie': cookies})
 
-    if data:
-        content = sess.post(url, headers=headersok, data=data).content
-    else:
-        try:
-            content = sess.get(url, headers=headersok).content
-        except:
-            content=''
+    try:
+        if data:
+            resp = sess.post(url, headers=headersok, data=data)
+        else:
+            resp = sess.get(url, headers=headersok)
+        content = resp if return_response else resp.content
+    except:
+        content = None if return_response else ''
     return content
+
+def multiGetUrl(urls, cookies=None, refer=False):
+    """Get many URLs from the same host at once. Headers not supportet yet."""
+    def fetch_url(req):
+        if not isinstance(req, Request):
+            req = Request(url)
+        resp = getUrl(req.url, data=req.data, cookies=cookies, refer=refer,
+                      return_response=True)
+        return Response(resp.content, resp.status_code, req)
+
+    return ThreadPool().map(fetch_url, urls)
 
 def CDA_login(USER, PASS, COOKIEFILE):
     my_addon.setSetting('loginCookie', '')
@@ -323,18 +401,37 @@ def getVideoUrlsQuality(url,quality=0):
         src = getVideoUrls(selected[1])
     return src
 
-def getDobryUrlImg(img):
-    if img.startswith('//'):
-        return 'https:'+img
-    else:
-        return img
-
 url='https://www.cda.pl/ratownik99/folder-glowny/2'
 
-def _scan_UserFolder(url,recursive=True,items=[],folders=[]):
+def _scan_UserFolder(url, recursive=True, items=None, folders=None):
+    fid = find_re(r'/folder/(\w+)(?:[?].*)?$', url) or 'root'
     content = getUrl(url)
-    items = items
-    folders = folders
+    if "folderinputPassword" in content:
+        passkey = 'folder.%s.pass' % fid
+        passwd = get_data(passkey) or get_data('folder.lastpass')
+        if passwd:
+            # try tu use remembered password
+            content = getUrl(url, data={"folderinputPassword" : passwd})
+            if not content or 'folderinputPassword' in content:
+                passwd = ''
+                clear_data(passkey)
+            elif not get_data(passkey):
+                # save password matching to new folder
+                set_data(passkey, passwd)
+        if not passwd:
+            passwd = xbmcgui.Dialog().input(u'Hasło do folderu', type=xbmcgui.INPUT_ALPHANUM)
+            content = getUrl(url, data={"folderinputPassword" : passwd})
+            if passwd:
+                if not content or 'folderinputPassword' in content:
+                    xbmcgui.Dialog().notification('Złe hasło', 'Hasło do folderu nie jest prawidłowe',
+                                                  xbmcgui.NOTIFICATION_ERROR)
+                else:
+                    set_data(passkey, passwd, save=False)
+                    set_data('folder.lastpass', passwd)
+    if items is None:
+        items = []
+    if folders is None:
+        folders = []
     ids = [(a.start(), a.end()) for a in re.finditer('data-file_id="', content)]
     ids.append( (-1,-1) )
     for i in range(len(ids[:-1])):
@@ -380,9 +477,7 @@ def get_UserFolder_obserwowani(url):
     return items,folders
 
 def get_UserFolder_content(urlF, recursive=True, filtr_items={}):
-    items=[]
-    folders=[]
-    items, folders, pagination = _scan_UserFolder(urlF, recursive, items, folders)
+    items, folders, pagination = _scan_UserFolder(urlF, recursive)
     if recursive:
         pagination = (False, False)
     _items=[]
@@ -398,11 +493,11 @@ def get_UserFolder_content(urlF, recursive=True, filtr_items={}):
         print 'Filted %d items by [%s in %s]' % (cnt, value, key)
     return items, folders, pagination
 
-def get_UserFolder_historia(url):
+def get_UserFolder_historia(url, recursive=True):
     """Read history and queue movie list."""
     def convert(item):
-        if item['url'].startswith('/'):
-            item['url'] = BASEURL + item['url']
+        item['url'] = getDobryUrl(item['url'])
+        item['img'] = getDobryUrl(item['img'])
         for k in ('title', 'plot'):
             item[k] = PLchar(item[k]).decode('utf-8')
         if item.get('duration'):
@@ -418,8 +513,15 @@ def get_UserFolder_historia(url):
     content = getUrl(url)
     # find items
     items = [convert(rx.groupdict()) for rx in re_media.finditer(content)]
+    # next and previous pages
+    pagination = (False, False)
+    pbeg = content.find('paginationControl')
+    if pbeg != -1:
+        pagcontent = content[pbeg : content.find('</div>', pbeg)]
+        pagination = (find_re(r'<a href="([^"]*)" class="previous"', pagcontent, False),
+                      find_re(r'<a href="([^"]*)" class="next"', pagcontent, False))
     # returns items and folders
-    return items, []
+    return items, [], pagination
 
 def l2d(l):
     #'\n    converts list to dictionary for safe data picup\n    '
@@ -506,12 +608,17 @@ url='https://www.cda.pl/video/145475730'
 
 def getDobryUrl(link):
     if link.startswith('//'):
-        link = 'https'+link
+        link = 'https:'+link
     elif link.startswith('/'):
         link = 'https://www.cda.pl'+link
     elif not link.startswith('http'):
         link=''
     return link
+
+def getDobryUrlImg(img):  # the same effect as in getDobryUrl()?
+    if img.startswith('//'):
+        return 'https:'+img
+    return img
 
 def grabInforFromLink(url):
     out={}
@@ -774,7 +881,7 @@ def premium_Content(url,params=''):
         sp = params.split('_')
         myparams = str([int(sp[0]),sp[1],sp[2],{}])
         payload = '{"jsonrpc":"2.0","method":"katalogLoadMore","params":%s,"id":2}'%myparams
-        content = getUrl(url.split('?')[0]+'?d=2',data=payload.replace("'",'"'),Refer=True,cookies=kukz)
+        content = getUrl(url.split('?')[0]+'?d=2',data=payload.replace("'",'"'),refer=True,cookies=kukz)
         jtmp=json.loads(content).get('result') if content else {}
         if jtmp.get('status') =='continue':
             params = '%d_%s_%s' % (int(sp[0])+1,sp[1],sp[2])
