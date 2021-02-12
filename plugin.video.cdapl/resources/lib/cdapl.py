@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
 
 import sys
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 from multiprocessing.pool import ThreadPool
 import cookielib
+import urlparse
 import urllib2, urllib
 import re, os
 import json
 import jsunpack
 import xbmcaddon
 import xbmcgui
-from urllib import unquote
+from urllib import unquote, urlencode
 import requests
+from tools import find_re
+import xbmc  # log
 
 
 #: Single folder item, "url" is path only
@@ -28,18 +31,6 @@ Request.__new__.__defaults__ = (None, None, None)
 Response = namedtuple('Response', 'content status req')
 Response.__new__.__defaults__ = (None, )
 Response.url = property(lambda self: self.req.url)
-
-
-#: Regex type
-regex = type(re.search('', ''))
-
-
-def find_re(pattern, text, default=''):
-    """Search regex pattern, return first sub-expr or whole found text or default."""
-    if not isinstance(pattern, regex):
-        pattern = re.compile(pattern)
-    rx = pattern.search(text)
-    return rx.group(1 if rx.groups() else 0) if rx else default
 
 
 BASEURL='https://www.cda.pl'
@@ -72,6 +63,7 @@ def getUrl(url, data=None, cookies=None, refer=False, return_response=False):
     if cookies:
         headersok.update({'Cookie': cookies})
 
+    xbmc.log('CDA: URL: url=%r, data=%r' % (url, data), xbmc.LOGWARNING)
     try:
         if data:
             resp = sess.post(url, headers=headersok, data=data)
@@ -790,64 +782,73 @@ def premium_Katagorie():
 url='https://www.cda.pl/premium/seriale-i-miniserie'
 
 def premium_readContent(content):
-    ids = [(a.start(), a.end()) for a in re.finditer('<span class="cover-area">', content)]
-    ids.append( (-1,-1) )
-    out=[]
-    for i in range(len(ids[:-1])):
-        item = content[ ids[i][1]:ids[i+1][0] ]
-        href = re.compile('<a href="(.*?)"').findall(item)
-        title= re.compile('class="kino-title">(.*?)<').findall(item)
-        img = re.compile('src="(.*?)"').findall(item)
-        quality = re.compile('"cloud-gray">(.*?p)<').findall(item)
-        rate = re.compile('<span class="marker">(.*?)<').findall(item)
-        plot = re.compile('<span class="description-cover-container">(.*?)<[/]*span',re.DOTALL).findall(item)
+    ids = [a.start() for a in re.finditer('<span class="cover-area">', content)]
+    ids.append(-1)  # without last character, but never mind
+    out = []
+    for i in xrange(len(ids) - 1):
+        item = content[ids[i]:ids[i+1]]
+        href = find_re('<a href="(.*?)"', item)
+        title= find_re('class="kino-title">(.*?)<', item)
+        img = find_re('src="(.*?)"', item)
+        quality = re.findall('"cloud-gray">(.*?p)<', item)
+        rate = find_re('<span class="marker">(.*?)<', item)
+        plot = find_re('<span class="description-cover-container">(.*?)<[/]*span', item, flags=re.DOTALL)
         if title and href:
             try:
-                rating = float(rate[0]) if rate else ''
+                rating = float(rate) if rate else ''
             except:
                 rating = ''
             out.append({
-                'title':PLchar(title[0]),
-                'url':BASEURL+href[0] if not href[0].startswith('http') else href[0],
-                'img':getDobryUrlImg(img[0]) if img else '',
-                'code':quality[-1] if quality else '',
-                'rating':rating,
-                'plot':PLchar(plot[0]) if plot else ''
+                'title': PLchar(title),
+                'url': BASEURL+href if not href.startswith('http') else href,
+                'img': getDobryUrlImg(img) if img else '',
+                'code': quality[-1] if quality else '',
+                'rating': rating,
+                'plot': PLchar(plot) if plot else ''
                 })
     return out
 
 def premium_Sort():
-    return {'nowo dodane':'new',
-    'alfabetycznie':'alpha',
-    'najlepiej oceniane na Filmweb':'best',
-    'najcz\xc4\x99\xc5\x9bciej oceniane na Filmweb':'popular',
-    'data premiery kinowej':'release',
-    'popularne w ci\xc4\x85gu ostatnich 60 dni':'views',
-    'popularne w ci\xc4\x85gu ostatnich 30 dni':'views30'}
-
-def qual_Sort():
-    return {'Wszystkie':'1,2,3',
-    'Wysoka jako\xc5\x9b\xc4\x87 (720p, 1080p)':'1',
-    '\xc5\x9arednia jako\xc5\x9b\xc4\x87 (480p)':'2',
-    'Niska jako\xc5\x9b\xc4\x87 (360p)':'3',
+    return {
+        'nowo dodane': 'new',
+        'alfabetycznie': 'alpha',
+        'najlepiej oceniane na Filmweb': 'best',
+        'najcz\xc4\x99\xc5\x9bciej oceniane na Filmweb': 'popular',
+        'data premiery kinowej': 'release',
+        'popularne w ci\xc4\x85gu ostatnich 60 dni': 'views',
+        'popularne w ci\xc4\x85gu ostatnich 30 dni': 'views30',
+        'popularne w ci\xc4\x85gu ostatnich 7 dni': 'views7',
+        'popularne w ci\xc4\x85gu ostatnich 3 dni': 'views3',
     }
 
-def premium_Content(url,params=''):
-    if len(params)==0:
-        content = getUrl(url,cookies=kukz)
+def qual_Sort():
+    return {
+        'Wszystkie': '1,2,3',
+        'Wysoka jako\xc5\x9b\xc4\x87 (720p, 1080p)': '1',
+        '\xc5\x9arednia jako\xc5\x9b\xc4\x87 (480p)': '2',
+        'Niska jako\xc5\x9b\xc4\x87 (360p)': '3',
+    }
+
+def premium_Content(url, params=''):
+    if not params:
+        content = getUrl(url, cookies=kukz)
         out = premium_readContent(content)
-        match = re.compile('katalogLoadMore\\(page,"(.*?)","(.*?)",').findall(content)
+        match = re.search(r'katalogLoadMore\(page,"(.*?)","(.*?)",', content)
         if match:
-            params = '%d_%s_%s' %(2,match[0][0],match[0][1])
+            params = '%d_%s_%s' % (2, match.group(1), match.group(2))
     else:
         sp = params.split('_')
-        myparams = str([int(sp[0]),sp[1],sp[2],{}])
-        payload = '{"jsonrpc":"2.0","method":"katalogLoadMore","params":%s,"id":2}'%myparams
-        content = getUrl(url.split('?')[0]+'?d=2',data=payload.replace("'",'"'),refer=True,cookies=kukz)
-        jtmp=json.loads(content).get('result') if content else {}
+        myparams = str([int(sp[0]), sp[1], sp[2], {}])
+        payload = '{"jsonrpc":"2.0","method":"katalogLoadMore","params":%s,"id":2}' % myparams
+        url = urlparse.urlparse(url or '')
+        query = OrderedDict(urlparse.parse_qsl(url.query))
+        query.pop('sort', None)
+        url = urlparse.urlunparse(url._replace(query=urlencode(query)))
+        content = getUrl(url, data=payload.replace("'", '"'), refer=True, cookies=kukz)
+        jtmp = json.loads(content).get('result') if content else {}
         if jtmp.get('status') =='continue':
-            params = '%d_%s_%s' % (int(sp[0])+1,sp[1],sp[2])
+            params = '%d_%s_%s' % (int(sp[0])+1, sp[1], sp[2])
         else:
             params = ''
         out = premium_readContent(jtmp.get('html',''))
-    return out,params
+    return out, params
