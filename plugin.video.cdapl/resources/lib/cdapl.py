@@ -17,6 +17,9 @@ from tools import find_re
 import xbmc  # log
 
 
+#: User folder content (sub-folders, items, etc.)
+UserFolder = namedtuple('UserFolder', 'folders items pagination tree')
+
 #: Single folder item, "url" is path only
 Folder = namedtuple('Folder', 'name id url')
 
@@ -354,9 +357,10 @@ def getVideoUrlsQuality(url,quality=0):
 
 url='https://www.cda.pl/ratownik99/folder-glowny/2'
 
-def _scan_UserFolder(url, recursive=True, items=None, folders=None):
+def _user_folder_content(url, content=None):
     fid = find_re(r'/folder/(\w+)(?:[?].*)?$', url) or 'root'
-    content = getUrl(url)
+    if content is None:
+        content = getUrl(url)
     if "folderinputPassword" in content:
         passwd = None
         if addon_data:
@@ -381,6 +385,16 @@ def _scan_UserFolder(url, recursive=True, items=None, folders=None):
                 elif addon_data:
                     addon_data.set(passkey, passwd)
                     addon_data.set('folders.lastpass', passwd)
+    return content
+
+def _scan_UserFolder(url, recursive=True, items=None, folders=None):
+    content = _user_folder_content(url)
+    folder_tree = []
+    for rx in re.finditer(r'<span class="folder-one-line.*?href="(?P<url>[^"]*?(?P<id>\d*))"[^>]*>(?P<name>[^<]*)<', content):
+        data = rx.groupdict()
+        data['name'] = data['name'].decode('utf8')
+        data['url'] = getDobryUrl(data['url'])
+        folder_tree.append(Folder(**data))
     if items is None:
         items = []
     if folders is None:
@@ -415,8 +429,8 @@ def _scan_UserFolder(url, recursive=True, items=None, folders=None):
     prevpage = prevpage[0] if prevpage else False
     pagination = (prevpage,nextpage)
     if recursive and nextpage:
-        _scan_UserFolder(nextpage,recursive,items,folders)
-    return items,folders,pagination
+        _scan_UserFolder(nextpage, recursive, items, folders)
+    return items, folders, pagination, folder_tree
 
 def get_UserFolder_obserwowani(url):
     content = getUrl(url)
@@ -430,7 +444,7 @@ def get_UserFolder_obserwowani(url):
     return items,folders
 
 def get_UserFolder_content(urlF, recursive=True, filtr_items={}):
-    items, folders, pagination = _scan_UserFolder(urlF, recursive)
+    items, folders, pagination, tree = _scan_UserFolder(urlF, recursive)
     if recursive:
         pagination = (False, False)
     _items=[]
@@ -444,7 +458,7 @@ def get_UserFolder_content(urlF, recursive=True, filtr_items={}):
                 _items.append(item)
         items = _items
         print 'Filted %d items by [%s in %s]' % (cnt, value, key)
-    return items, folders, pagination
+    return UserFolder(items, folders, pagination, tree)
 
 def get_UserFolder_historia(url, recursive=True):
     """Read history and queue movie list."""
@@ -577,7 +591,7 @@ def grabInforFromLink(url):
     out={}
     if not 'www.cda.pl/video/' in url:
         return out
-    content = getUrl(url)
+    content = _user_folder_content(url)
     plot=re.compile('<meta property="og:description" content="(.*?)"',re.DOTALL).findall(content)
     title=re.compile('<meta property="og:title" content="(.*?)"').findall(content)
     image=re.compile('<meta property="og:image" content="(.*?)"').findall(content)
@@ -684,20 +698,18 @@ def jsconWalk(data, path):
                     lista_katalogow.append(one)
                 else:
                     lista_pozycji.append(one)
-            elif one.has_key('folder'):        #This is folder in cds.pl get content:
+            elif one.has_key('folder'):        #This is folder in cda.pl get content:
                 filtr_items = one.get('flter_item',{})
                 show_subfolders = one.get('subfoders',True)
                 show_items = one.get('items',True)
                 is_recursive = one.get('recursive',True)
 
-                items,folders,pagin = get_UserFolder_content(
-                                        urlF        = one.get('folder',''),
-                                        recursive   = is_recursive,
-                                        filtr_items = filtr_items )
+                userfolder = get_UserFolder_content(urlF=one.get('folder',''), recursive=is_recursive,
+                                                    filtr_items=filtr_items)
                 if show_subfolders:
-                    lista_katalogow.extend(folders)
+                    lista_katalogow.extend(userfolder.folders)
                 if show_items:
-                    lista_pozycji.extend(items)
+                    lista_pozycji.extend(userfolder.items)
 
     return (lista_pozycji, lista_katalogow)
 
@@ -732,14 +744,12 @@ def jsconWalk2(data,path):
                 show_subfolders = one.get('subfoders',True)
                 show_items = one.get('items',True)
                 is_recursive = one.get('recursive',True)
-                items,folders,pagination = get_UserFolder_content(
-                                        urlF        = one.get('folder',''),
-                                        recursive   = is_recursive,
-                                        filtr_items = filtr_items )
+                userfolder = get_UserFolder_content(urlF=one.get('folder',''), recursive=is_recursive,
+                                                    filtr_items=filtr_items)
                 if show_subfolders:
-                    lista_katalogow.extend(folders)
+                    lista_katalogow.extend(userfolder.folders)
                 if show_items:
-                    lista_pozycji.extend(items)
+                    lista_pozycji.extend(userfolder.items)
     return (lista_pozycji,lista_katalogow)
 
 def PLchar(char):
@@ -830,12 +840,20 @@ def qual_Sort():
     }
 
 def premium_Content(url, params=''):
+    """Returns premim content and pagination[prev,next].
+
+    Pagination item is False None) if not pagination
+    or something else if exists (empty string is valid pagination!).
+    Value have to be set as `params` in next call.
+    None value is forbiden.
+    """
     if not params:
         content = getUrl(url, cookies=kukz)
         out = premium_readContent(content)
         match = re.search(r'katalogLoadMore\(page,"(.*?)","(.*?)",', content)
         if match:
-            params = '%d_%s_%s' % (2, match.group(1), match.group(2))
+            next_params = '%d_%s_%s' % (2, match.group(1), match.group(2))
+        prev_params = False
     else:
         sp = params.split('_')
         myparams = str([int(sp[0]), sp[1], sp[2], {}])
@@ -847,8 +865,12 @@ def premium_Content(url, params=''):
         content = getUrl(url, data=payload.replace("'", '"'), refer=True, cookies=kukz)
         jtmp = json.loads(content).get('result') if content else {}
         if jtmp.get('status') =='continue':
-            params = '%d_%s_%s' % (int(sp[0])+1, sp[1], sp[2])
+            next_params = '%d_%s_%s' % (int(sp[0])+1, sp[1], sp[2])
         else:
-            params = ''
+            next_params = False
+        if int(sp[0]) <= 2:
+            prev_params = ''  # first page, no params, but valid pagination
+        else:
+            prev_params = '%d_%s_%s' % (int(sp[0])-1, sp[1], sp[2])
         out = premium_readContent(jtmp.get('html',''))
-    return out, params
+    return out, [prev_params, next_params]

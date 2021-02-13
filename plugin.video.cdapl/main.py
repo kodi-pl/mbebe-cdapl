@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import sys, re, os
+from collections import namedtuple
 import urllib, urllib2
 import urlparse
 import xbmc, xbmcgui, xbmcaddon
@@ -10,6 +11,10 @@ import StorageServer
 from resources.lib import cdapl as cda
 from resources.lib.udata import AddonUserData
 from resources.lib.tools import U, uclean, NN, fragdict
+
+
+#: Elemt to add by addDirectoryItems
+AItem = namedtuple('AItem', 'url item isfolder')
 
 
 cache = StorageServer.StorageServer('cda')
@@ -47,12 +52,6 @@ if _old_search_history and all(_old_search_history):
     addon_data.set('history.items', (addon_data.get('history.items', []) + _old_search_history)[:HISTORY_SIZE])
     cache.delete('history')
 del _old_search_history
-
-# TODO:  REMOVE IT BEFORE RELESE!  It's temporary solution.
-# Move old folder passwords (2.7ry2) to new addon-data (2.7ry3+).
-for key in filter(lambda k: re.match(r'^folder\.\w+\.pass$', k), addon_data.data or {}):
-    addon_data.set('folders.%s' % key, addon_data.data[key])
-    del addon_data.data[key]
 
 
 infoLabels_allowed = {
@@ -100,17 +99,27 @@ def addLinkItem(name, url, mode, iconImage=None, infoLabels=False, contextO=['F_
     if fanart:
         liz.setProperty('fanart_image',fanart)
     liz.setProperty('mimetype', 'video/x-msvideo')
-    contextMenuItems = GetcontextMenuItemsXX(infoLabels,contextO,url,liz)
+    contextMenuItems = GetcontextMenuItemsXX(infoLabels, contextO, url,liz)
     liz.addContextMenuItems(contextMenuItems, replaceItems=False)
     ok = xbmcplugin.addDirectoryItem(handle=addon_handle, url=u, listitem=liz,isFolder=False,totalItems=totalItems)
     xbmcplugin.addSortMethod(addon_handle, sortMethod=xbmcplugin.SORT_METHOD_UNSORTED, label2Mask = '%D, %P, %R')
     return ok
 
-def GetcontextMenuItemsXX(infoLabels,contextO,url,liz=None):
+def createContextMenuFolderFlags(contextMenuItems, infoLabels, contextO, url, liz=None):
+    if 'F_FOLDER' in contextO:
+        contextMenuItems.append((u'[COLOR lightblue]Folder filmu[/COLOR]', 'XBMC.Container.Update(%s)' %
+                                 build_url({'mode': 'FolderContent', 'ex_link': urllib.quote(url),
+                                            'select': infoLabels.get('title')})))
+    if 'F_FOLDER_UP' in contextO:
+        contextMenuItems.append((u'[COLOR lightblue]Folder nadrzędny[/COLOR]', 'XBMC.Container.Update(%s)' %
+                                 build_url({'mode': 'FolderContent', 'ex_link': urllib.quote(url),
+                                            'select': infoLabels.get('title'), 'up': '2'})))
+
+def GetcontextMenuItemsXX(infoLabels, contextO, url, liz=None):
     contextMenuItems = []
     contextMenuItems.append(('[COLOR lightblue]Informacja[/COLOR]', 'XBMC.Action(Info)'))
     contextMenuItems.append((u'[COLOR lightblue]Folder Użytkownika[/COLOR]', 'XBMC.Container.Update(%s)' % build_url({'mode': 'UserContent', 'ex_link' : urllib.quote(url)})))
-    contextMenuItems.append((u'[COLOR lightblue]Folder filmu[/COLOR]', 'XBMC.Container.Update(%s)' % build_url({'mode': 'FolderContent', 'ex_link' : urllib.quote(url)})))
+    createContextMenuFolderFlags(contextMenuItems, infoLabels, contextO, url, liz)
     content=urllib.quote_plus(json.dumps(infoLabels))
     if 'F_ADD' in contextO:
         contextMenuItems.append(('[COLOR lightblue]Dodaj do Biblioteki[/COLOR]', 'XBMC.Container.Update(plugin://%s?mode=AddMovie&ex_link=%s)'%(my_addon_id,content)))
@@ -129,6 +138,7 @@ def GetContextMenuFoldersXX(infoLabels, contextO):
     jdata = dict(infoLabels)
     jdata.setdefault('folder', infoLabels.get('url'))
     jdata = urllib.quote_plus(json.dumps(jdata))
+    createContextMenuFolderFlags(menu, infoLabels, contextO, '')
     if 'F_ADD' in contextO:
         menu.append((u'[COLOR lightblue]Dodaj do Wybranych[/COLOR]',
                      'RunPlugin(plugin://%s?mode=favoritesADD&ex_link=%s)' % (my_addon_id, jdata)))
@@ -140,7 +150,8 @@ def GetContextMenuFoldersXX(infoLabels, contextO):
                      'RunPlugin(plugin://%s?mode=favoritesREM&ex_link=all)' % (my_addon_id)))
     return menu
 
-def add_Item(name, url, mode, iconImage=None, infoLabels=False, contextO=['F_ADD'],IsPlayable=False,fanart=None,totalItems=1,json_file=''):
+def add_Item(name, url, mode, iconImage=None, infoLabels=False, contextO=('F_ADD',), IsPlayable=False,
+             fanart=None, totalItems=1, json_file=''):
     u = build_url({'mode': mode, 'foldername': name, 'ex_link' : url, 'json_file' : json_file})
     if iconImage==None:
         iconImage='DefaultFolder.png'
@@ -154,13 +165,14 @@ def add_Item(name, url, mode, iconImage=None, infoLabels=False, contextO=['F_ADD
     if fanart:
         liz.setProperty('fanart_image',fanart)
     liz.setProperty('mimetype', 'video/x-msvideo')
-    contextMenuItems = GetcontextMenuItemsXX(infoLabels,contextO,url)
+    contextMenuItems = GetcontextMenuItemsXX(infoLabels, contextO, url)
     liz.addContextMenuItems(contextMenuItems, replaceItems=False)
-    return (u, liz, False)
+    return AItem(u, liz, False)
 
 
 def addDir(name, ex_link=None, json_file='', mode='walk', iconImage=None, fanart='',
-           infoLabels=False, totalItems=1, contextmenu=None, item_type='video'):
+           infoLabels=False, totalItems=1, contextmenu=None, item_type='video', properties=None):
+    """Create and add folder to current directory list. Returns ListItem or None."""
     url = build_url({'mode': mode, 'foldername': name, 'ex_link': ex_link, 'json_file': json_file})
     li = xbmcgui.ListItem(label=name, iconImage='DefaultFolder.png')
     if iconImage is None:
@@ -177,9 +189,11 @@ def addDir(name, ex_link=None, json_file='', mode='walk', iconImage=None, fanart
     if contextmenu:
         contextMenuItems = contextmenu
         li.addContextMenuItems(contextMenuItems, replaceItems=True)
+    if properties:
+        li.setProperties(properties)
     ok = xbmcplugin.addDirectoryItem(handle=addon_handle, url=url, listitem=li, isFolder=True)
     xbmcplugin.addSortMethod(addon_handle, sortMethod=xbmcplugin.SORT_METHOD_DATE, label2Mask='%D, %P, %R')
-    return ok
+    return li if ok else None
 
 def SelSort():
     xbmcplugin.addSortMethod( handle=addon_handle, sortMethod=xbmcplugin.SORT_METHOD_TITLE )
@@ -404,7 +418,7 @@ def updateMetadata(item):
     return item
 
 
-def mainWalk(ex_link='', json_file='', fname=''):
+def mainWalk(ex_link='', json_file='', fname='', select=''):
     items = []
     folders = []
     contextmenu = []
@@ -420,15 +434,24 @@ def mainWalk(ex_link='', json_file='', fname=''):
         items, folders = cda.jsconWalk(data, ex_link)
     if 'folder' in ex_link or 'ulubione' in ex_link:
         recursive = (my_addon.getSetting('UserFolder.content.paginatoin') != 'true')
-        items, folders, pagination = cda.get_UserFolder_content(urlF=ex_link, recursive=recursive,
-                                                                filtr_items={})
+        items, folders, pagination, tree = cda.get_UserFolder_content(urlF=ex_link, recursive=recursive,
+                                                                      filtr_items={})
+        if tree:
+            xbmcplugin.setProperty(addon_handle, 'FolderName', tree[-1].name)
+            if ex_link != tree[-1].url:
+                contextO = ['F_FOLDER']
+            if len(tree) > 1:
+                contextO = ['F_FOLDER_UP']
     elif 'obserwowani' in ex_link:
         items, folders = cda.get_UserFolder_obserwowani(ex_link)
     elif '/historia' in ex_link or '/obejrzyj-pozniej' in ex_link:
         items, folders, pagination = cda.get_UserFolder_historia(ex_link)
     if pagination[0]:
-        addLinkItem('[COLOR gold] << Poprzednia strona [/COLOR]', url=pagination[0], mode='__page:walk',
-                    iconImage=media('prev.png'), infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
+        # addLinkItem("__page:walk") -> addDir("walk")
+        # addLinkItem('[COLOR gold] << Poprzednia strona [/COLOR]', url=pagination[0], mode='__page:walk',
+        #             iconImage=media('prev.png'), infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
+        addDir(u'[COLOR gold]<< Poprzednia strona <<[/COLOR]', ex_link=pagination[0],
+               mode='walk', iconImage=media('prev.png'), properties={'SpecialSort': 'top'})
     N_folders = len(items)
     N_items = len(items)
     for f in folders:
@@ -442,18 +465,28 @@ def mainWalk(ex_link='', json_file='', fname=''):
                                 (my_addon_id, urllib.quote_plus(tmp_json_file))))
         if f.get('url'):
             contextmenu.extend(GetContextMenuFoldersXX(f, contextO))
-        addDir(title, ex_link=f.get('url'), json_file=tmp_json_file, mode='walk',
-               iconImage=f.get('img', ''), infoLabels=f, fanart=f.get('fanart', ''),
-               contextmenu=contextmenu, totalItems=N_folders+N_items)
+        li = addDir(title, ex_link=f.get('url'), json_file=tmp_json_file, mode='walk',
+                    iconImage=f.get('img', ''), infoLabels=f, fanart=f.get('fanart', ''),
+                    contextmenu=contextmenu, totalItems=N_folders+N_items)
+        if select and select == title:
+            li.select(True)
+            select = ''
     list_of_items = []
     for item in items:
-        list_of_items.append(add_Item(name=item.get('title').encode('utf-8'), url=item.get('url'), mode='decodeVideo',
-                                      contextO=contextO, iconImage=item.get('img'), infoLabels=item, IsPlayable=True,
-                                      fanart=item.get('img')))
+        aitem = add_Item(name=item.get('title').encode('utf-8'), url=item.get('url'), mode='decodeVideo',
+                         contextO=contextO, iconImage=item.get('img'), infoLabels=item, IsPlayable=True,
+                         fanart=item.get('img'))
+        if select and select == item.get('title'):
+            aitem.item.select(True)
+            select = ''
+        list_of_items.append(aitem)
     xbmcplugin.addDirectoryItems(handle=addon_handle, items=list_of_items, totalItems=N_folders+N_items)
     if pagination[1]:
-        addLinkItem(u'[COLOR gold]Następna strona >> [/COLOR] ', url=pagination[1], mode='__page:walk',
-                    iconImage=media('next.png'), infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
+        # addLinkItem("__page:walk") -> addDir("walk")
+        # addLinkItem(u'[COLOR gold]Następna strona >> [/COLOR] ', url=pagination[1], mode='walk',
+        #             iconImage=media('next.png'), infoLabels=False, contextO=[], IsPlayable=False, fanart=None, totalItems=1)
+        addDir(u'[COLOR gold]>> Następna strona >>[/COLOR]', ex_link=pagination[1],
+               mode='walk', iconImage=media('next.png'), properties={'SpecialSort': 'bottom'})
     xbmcplugin.addSortMethod(addon_handle, sortMethod=xbmcplugin.SORT_METHOD_UNSORTED, label2Mask='%D, %P, %R')
     SelSort()
     return 1
@@ -528,12 +561,13 @@ def save_favorites(jdata):
     return False
 
 
-# xbmcplugin.setContent(addon_handle, 'movies')
+xbmcplugin.setContent(addon_handle, 'movies')
 mode = args.get('mode', None)
 fname = args.get('foldername',[''])[0]
 ex_link = args.get('ex_link',[''])[0]
 json_file = args.get('json_file',[''])[0]
 
+xbmc.log('CDA: ARGS: ' + str(args), xbmc.LOGWARNING)
 xbmc.log('CDA: mode=%r, link=%r, json=%r' % (mode, ex_link, json_file), xbmc.LOGWARNING)
 if mode is None:
     xbmcplugin.setContent(addon_handle, 'addons')
@@ -582,9 +616,9 @@ elif mode[0] == 'premiumKat':
     jakosc_premium = U(my_addon.getSetting('jakosc_premium'))
     N_folders = len(folders) + 2
     addDir(u'[[COLOR gold] Sortuj po: [I]%s[/I] [/COLOR]]' % sortuj_po, ex_link='', mode='premiumSort',
-           iconImage=media('premium/_ustawienia.png'), totalItems=N_folders)
+           iconImage=media('premium/_ustawienia.png'), totalItems=N_folders, properties={'SpecialSort': 'top'})
     addDir(u'[[COLOR gold] Jakość: [I]%s[/I] [/COLOR]]' % jakosc_premium, ex_link='', mode='premiumQuality',
-           iconImage=media('premium/_ustawienia.png'), totalItems=N_folders)
+           iconImage=media('premium/_ustawienia.png'), totalItems=N_folders, properties={'SpecialSort': 'top'})
     for f in folders:
         icon_url = f.get('img')
         if not icon_url:
@@ -604,10 +638,10 @@ elif mode[0] == 'premiumSort':
         xbmc.executebuiltin('XBMC.Container.Refresh')
 
 elif mode[0] == 'premiumQuality':
-    sortuj= cda.qual_Sort()
+    sortuj = cda.qual_Sort()
     selection = xbmcgui.Dialog().select('Jako\xc5\x9b\xc4\x87:', sortuj.keys())
     if selection > -1:
-        my_sort= sortuj.keys()[selection]
+        my_sort = sortuj.keys()[selection]
         my_addon.setSetting('jakosc_premium',my_sort)
         xbmc.executebuiltin('XBMC.Container.Refresh')
 
@@ -621,8 +655,11 @@ elif mode[0] == 'premiumFilm':
         dd = '' if premka == 'true' else '&d=2'
         url = '%s?sort=%s&q=%s%s' % (ex_link, cda.premium_Sort().get(sortuj_po, ''),
                                      cda.qual_Sort().get(jakosc_premium, ''), dd)
-    items, params = cda.premium_Content(url, json_file)
-    N_items = len(items) + bool(params)
+    items, pagination = cda.premium_Content(url, json_file)
+    N_items = len(items) + sum(map(bool, pagination))
+    if pagination[0] is not False:
+        addDir(u'[COLOR gold]<< Poprzednia strona <<[/COLOR]', ex_link=url, json_file=pagination[0],
+               mode='premiumFilm', iconImage=media('prev.png'), properties={'SpecialSort': 'top'})
     for item in items:
         name = cda.html_entity_decode(item.get('title', ''))
         href = item.get('url', '')
@@ -632,9 +669,9 @@ elif mode[0] == 'premiumFilm':
         else:
             addLinkItem(name=name, url=href, mode='decodeVideo', contextO=[], iconImage=item.get('img'),
                         infoLabels=item, IsPlayable=True, fanart=item.get('img'), totalItems=N_items)
-    if params:
-        addDir(u'[COLOR gold]>> Następna strona >>[/COLOR]', ex_link=url, json_file=params,
-               mode='premiumFilm', iconImage=media('next.png'))
+    if pagination[1] is not False:
+        addDir(u'[COLOR gold]>> Następna strona >>[/COLOR]', ex_link=url, json_file=pagination[1],
+               mode='premiumFilm', iconImage=media('next.png'), properties={'SpecialSort': 'bottom'})
     xbmcplugin.endOfDirectory(addon_handle, succeeded=True, cacheToDisc=False)
 
 elif mode[0] == 'favoritesADD':
@@ -752,13 +789,26 @@ elif mode[0] == 'UserContent':
         xbmcgui.Dialog().notification('Folder nie jest dost\xc4\x99pny', '' , xbmcgui.NOTIFICATION_INFO, 5000)
 
 elif mode[0] == 'FolderContent':
+    up = args.get('up', ['1'])[0]
+    select = args.get('select', [''])[0]
     info = cda.grabInforFromLink(urllib.unquote(ex_link))
     folders = info.get('folders', [])
     if folders:
-        mainWalk(folders[-1].url, '', '')
+        try:
+            up = int(up)
+        except ValueError:
+            up = 1
+        if 0 > up < len(folders):
+            up = 1
+        mainWalk(folders[-up].url, '', '', select=select)
         xbmcplugin.endOfDirectory(addon_handle, succeeded=True, cacheToDisc=False)
+
+        # xbmc.executeJSONRPC('{"jsonrpc":"2.0","method":"Input.firstpage","id":1}')
+        # xbmc.executeJSONRPC('{"jsonrpc":"2.0","method":"Input.Down","id":1}')
+        # xbmc.executeJSONRPC('{"jsonrpc":"2.0","method":"Input.Down","id":1}')
+        # # xbmc.executeJSONRPC('{"jsonrpc":"2.0","method":"Input.Select","id":1}')
     else:
-        xbmcgui.Dialog().notification('Folder nie jest dost\xc4\x99pny', '' , xbmcgui.NOTIFICATION_INFO, 5000)
+        xbmcgui.Dialog().notification(u'Folder nie jest dostępny', '' , xbmcgui.NOTIFICATION_INFO, 5000)
 
 elif mode[0] =='AddMovie':
     from resources.lib import libtools
