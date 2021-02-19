@@ -46,12 +46,29 @@ def NN(n, word, *forms):
     return forms[2]
 
 
-def find_re(pattern, text, default='', flags=0):
-    """Search regex pattern, return first sub-expr or whole found text or default."""
+def find_re(pattern, text, default='', flags=0, many=True):
+    """
+    Search regex pattern, return sub-expr(s) or whole found text or default.
+
+    Pattern can be text (str or unicode) or compiled regex.
+
+    When no sub-expr defined returns whole matched text (whole pattern).
+    When one sub-expr defined returns sub-expr.
+    When many sub-exprs defined returns all sub-exprs if `many` is True else first sub-expr.
+
+    Ofcourse unnamed sub-expr (?:...) doesn't matter.
+    """
     if not isinstance(pattern, regex):
         pattern = re.compile(pattern, flags)
     rx = pattern.search(text)
-    return rx.group(1 if rx.groups() else 0) if rx else default
+    if not rx:
+        return default
+    groups = rx.groups()
+    if not groups:
+        rx.group(0)
+    if len(groups) == 1 or not many:
+        return groups[0]
+    return groups
 
 
 def fragdict(url):

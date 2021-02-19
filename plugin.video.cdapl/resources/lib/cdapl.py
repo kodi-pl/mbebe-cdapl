@@ -2,7 +2,7 @@
 
 import sys
 from collections import namedtuple, OrderedDict
-from multiprocessing.pool import ThreadPool
+# from multiprocessing.pool import ThreadPool
 import cookielib
 import urlparse
 import urllib2, urllib
@@ -66,7 +66,7 @@ def getUrl(url, data=None, cookies=None, refer=False, return_response=False):
     if cookies:
         headersok.update({'Cookie': cookies})
 
-    xbmc.log('CDA: URL: url=%r, data=%r' % (url, data), xbmc.LOGWARNING)
+    xbmc.log('CDA: getUrl(url=%r, data=%r)' % (url, data))
     try:
         if data:
             resp = sess.post(url, headers=headersok, data=data)
@@ -77,16 +77,16 @@ def getUrl(url, data=None, cookies=None, refer=False, return_response=False):
         content = None if return_response else ''
     return content
 
-def multiGetUrl(urls, cookies=None, refer=False):
-    """Get many URLs from the same host at once. Headers not supportet yet."""
-    def fetch_url(req):
-        if not isinstance(req, Request):
-            req = Request(url)
-        resp = getUrl(req.url, data=req.data, cookies=cookies, refer=refer,
-                      return_response=True)
-        return Response(resp.content, resp.status_code, req)
-
-    return ThreadPool().map(fetch_url, urls)
+# def multiGetUrl(urls, cookies=None, refer=False):
+#     """Get many URLs from the same host at once. Headers not supportet yet."""
+#     def fetch_url(req):
+#         if not isinstance(req, Request):
+#             req = Request(url)
+#         resp = getUrl(req.url, data=req.data, cookies=cookies, refer=refer,
+#                       return_response=True)
+#         return Response(resp.content, resp.status_code, req)
+#
+#     return ThreadPool().map(fetch_url, urls)
 
 def CDA_login(USER, PASS, COOKIEFILE):
     my_addon.setSetting('loginCookie', '')
@@ -304,56 +304,55 @@ def getDataBeetwenMarkers(data, marker1, marker2, withMarkers=True, caseSensitiv
     return True, data[idx1:idx2]
 #########################################
 
-def getVideoUrls(url,tryIT=4):
+def getVideoUrls(url, tryIT=4):
 
     "\n    returns \n        - ulr https://....\n        - or list of [('720p', 'https://www.cda.pl/video/1946991f?wersja=720p'),...]\n         \n    "
     url = url.replace('/vfilm','')
     url = url.replace('?from=catalog','')
 
-
-
     if not 'ebd.cda.pl' in url:
-        url='https://ebd.cda.pl/100x100/'+url.split('/')[-1]
-    playerSWF='|Cookie=PHPSESSID=1&Referer=http://static.cda.pl/flowplayer/flash/flowplayer.commercial-3.2.18.swf'
-    content = getUrl(url,cookies=kukz)
+        url='https://ebd.cda.pl/100x100/' + url.split('/')[-1]
+    playerSWF = '|Cookie=PHPSESSID=1&Referer=http://static.cda.pl/flowplayer/flash/flowplayer.commercial-3.2.18.swf'
+    content = getUrl(url, cookies=kukz)
 
     src=[]
-    if content=='':
-        src.append(('Materia\xc5\x82 zosta\xc5\x82 usuni\xc4\x99ty',''))
+    if content == '':
+        src.append(('Materia\xc5\x82 zosta\xc5\x82 usuni\xc4\x99ty', ''))
     lic1 = content.find('To wideo jest niedost\xc4\x99pne ')
 
-    if lic1>0:
-        src.append(('To wideo jest niedost\xc4\x99pne w Twoim kraju',''))
+    if lic1 > 0:
+        src.append(('To wideo jest niedost\xc4\x99pne w Twoim kraju', ''))
     elif not '?wersja' in url and not 'drmtoday.com' in content:
-        quality_options = re.compile('<a data-quality="(.*?)" (?P<H>.*?)>(?P<Q>.*?)</a>', re.DOTALL).findall(content)
+        quality_options = re.findall('<a data-quality="(.*?)" (?P<H>.*?)>(?P<Q>.*?)</a>', content, re.DOTALL)
         for quality in quality_options:
-            link = re.search('href="(.*?)"',quality[1])
+            link = re.search('href="(.*?)"', quality[1])
             hd = quality[2]
             if link:
-                src.insert(0,(hd,link.group(1)))
+                src.insert(0, (hd, link.group(1)))
     if not src:
         src = scanforVideoLink(content)
         if src and not 'drmheader' in str(src):
-            src+=playerSWF
+            src += playerSWF
         if not src:
             for i in range(tryIT):
                 content = getUrl(url)
                 src = scanforVideoLink(content)
                 if src:
-                    src+=playerSWF
+                    src += playerSWF
                     break
     if not src:
         if content.find('Ten film jest dost'):
-            src=[('Ten film jest dost\xc4\x99pny dla u\xc5\xbcytkownik\xc3\xb3w premium. Wtyczka mo\xc5\xbce nie obs\xc5\x82ugiwa\xc4\x87 poprawnie zasob\xc3\xb3w premium','')]
+            src=[('Ten film jest dost\xc4\x99pny dla u\xc5\xbcytkownik\xc3\xb3w premium. '
+                  'Wtyczka mo\xc5\xbce nie obs\xc5\x82ugiwa\xc4\x87 poprawnie zasob\xc3\xb3w premium','')]
     return src
 
-def getVideoUrlsQuality(url,quality=0):
-    '\n    returns url to video\n    '
-    src = getVideoUrls(url)
-    if type(src)==list:
-        selected=src[quality]
-        src = getVideoUrls(selected[1])
-    return src
+# def getVideoUrlsQuality(url,quality=0):
+#     '\n    returns url to video\n    '
+#     src = getVideoUrls(url)
+#     if type(src)==list:
+#         selected=src[quality]
+#         src = getVideoUrls(selected[1])
+#     return src
 
 url='https://www.cda.pl/ratownik99/folder-glowny/2'
 
@@ -392,9 +391,13 @@ def _scan_UserFolder(url, recursive=True, items=None, folders=None):
     folder_tree = []
     for rx in re.finditer(r'<span class="folder-one-line.*?href="(?P<url>[^"]*?(?P<id>\d*))"[^>]*>(?P<name>[^<]*)<', content):
         data = rx.groupdict()
-        data['name'] = data['name'].decode('utf8')
+        data['name'] = PLchar(data['name']).decode('utf8')
         data['url'] = getDobryUrl(data['url'])
         folder_tree.append(Folder(**data))
+    if folder_tree and folder_tree[0].name == u'Folder główny':
+        userfolder = find_re(r'<a class="[^"]*\blogin-txt\b[^"]*" href="(.*?)"', content)
+        if userfolder:
+            folder_tree[0] = folder_tree[0]._replace(url='%s/folder-glowny' % getDobryUrl(userfolder))
     if items is None:
         items = []
     if folders is None:
@@ -432,16 +435,16 @@ def _scan_UserFolder(url, recursive=True, items=None, folders=None):
         _scan_UserFolder(nextpage, recursive, items, folders)
     return items, folders, pagination, folder_tree
 
-def get_UserFolder_obserwowani(url):
-    content = getUrl(url)
-    items = []
-    folders = []
-    match=re.compile('@u\xc5\xbcytkownicy(.*?)<div class="panel-footer"></div>', re.DOTALL).findall(content)
-    if len(match) > 0:
-        data = re.compile('data-user="(.*?)" href="(.*?)"(.*?)src="(.*?)"', re.DOTALL).findall(match[0])
-        for one in data:
-            folders.append( {'url':one[1]+'/folder-glowny','title': html_entity_decode(one[0]),'img':getDobryUrlImg(one[3]) })
-    return items,folders
+# def get_UserFolder_obserwowani(url):
+#     content = getUrl(url)
+#     items = []
+#     folders = []
+#     match=re.compile('@u\xc5\xbcytkownicy(.*?)<div class="panel-footer"></div>', re.DOTALL).findall(content)
+#     if len(match) > 0:
+#         data = re.compile('data-user="(.*?)" href="(.*?)"(.*?)src="(.*?)"', re.DOTALL).findall(match[0])
+#         for one in data:
+#             folders.append( {'url':one[1]+'/folder-glowny','title': html_entity_decode(one[0]),'img':getDobryUrlImg(one[3]) })
+#     return items,folders
 
 def get_UserFolder_content(urlF, recursive=True, filtr_items={}):
     items, folders, pagination, tree = _scan_UserFolder(urlF, recursive)
@@ -588,40 +591,62 @@ def getDobryUrlImg(img):  # the same effect as in getDobryUrl()?
     return img
 
 def grabInforFromLink(url):
-    out={}
-    if not 'www.cda.pl/video/' in url:
-        return out
-    content = _user_folder_content(url)
-    plot=re.compile('<meta property="og:description" content="(.*?)"',re.DOTALL).findall(content)
-    title=re.compile('<meta property="og:title" content="(.*?)"').findall(content)
-    image=re.compile('<meta property="og:image" content="(.*?)"').findall(content)
-    user = re.compile('<a class="link-primary" href="(.*?)" class="autor" title="">').findall(content)
-    quality=re.compile('href=".+?wersja=(.+?)"').findall(content)
-    duration = re.compile('<meta itemprop=[\'"]duration[\'"] content=[\'"](.*?)[\'"]').findall(content)
-    if title:
-        title = PLchar(title[0])
-        duration =':'.join(re.compile('(\\d+)').findall(duration[0])) if duration else ''
-        duration = getDuration(duration) if duration else ''
-        user = getDobryUrl(user[0])+'/folder-glowny' if user else ''
-        code = quality[-1] if quality else ''
-        plot = PLchar(plot[0]) if plot else ''
-        img = getDobryUrlImg(image[0]) if image else ''
-        folders = [Folder(name='/', id=0, url=user)]  # root folder
-        for rx in re.finditer(r'<span class="tree-folder-ico.*?href="(?P<url>[^"]*?(?P<id>\d*))"[^>]*>(?P<name>[^<]*)<', content):
+    if 'www.cda.pl/video/' in url:
+        content = _user_folder_content(url)
+        plot=re.compile('<meta property="og:description" content="(.*?)"',re.DOTALL).findall(content)
+        title=re.compile('<meta property="og:title" content="(.*?)"').findall(content)
+        image=re.compile('<meta property="og:image" content="(.*?)"').findall(content)
+        userfolder, username = find_re(r'<a class="link-primary" href="(.*?([^"/]+))"', content)
+        quality=re.compile('href=".+?wersja=(.+?)"').findall(content)
+        duration = re.compile('<meta itemprop=[\'"]duration[\'"] content=[\'"](.*?)[\'"]').findall(content)
+        if title:
+            title = PLchar(title[0])
+            duration =':'.join(re.compile('(\\d+)').findall(duration[0])) if duration else ''
+            duration = getDuration(duration) if duration else ''
+            # userfolder = getDobryUrl(userfolder)+'/folder-glowny' if userfolder else ''
+            userfolder = getDobryUrl(userfolder)
+            code = quality[-1] if quality else ''
+            plot = PLchar(plot[0]) if plot else ''
+            img = getDobryUrlImg(image[0]) if image else ''
+            folders = [Folder(name=u'Folder główny', id=0, url='%s/folder-glowny' % userfolder)]  # root folder
+            for rx in re.finditer(r'<span class="tree-folder-ico.*?href="(?P<url>[^"]*?(?P<id>\d*))"[^>]*>(?P<name>[^<]*)<', content):
+                data = rx.groupdict()
+                data['name'] = PLchar(data['name']).decode('utf8')
+                data['url'] = getDobryUrl(data['url'])
+                folders.append(Folder(**data))
+            return {'url': url,
+                    'title': unicode(title, 'utf-8'),
+                    'code': code,
+                    'plot': unicode(plot, 'utf-8'),
+                    'img': img,
+                    'duration': duration,
+                    'user': userfolder,
+                    'folders': folders,
+                    'username': username,
+                    }
+    elif '/folder/' in url:
+        content = _user_folder_content(url)
+        userfolder, username = find_re(r'<a class="[^"]*\blogin-txt\b[^"]*" href="(.*?([^"/]+))"', content)
+        # userfolder = getDobryUrl(userfolder)+'/folder-glowny' if userfolder else ''
+        userfolder = getDobryUrl(userfolder)
+        folders = [Folder(name=u'Folder główny', id=0, url='%s/folder-glowny' % userfolder)]  # root folder
+        for rx in re.finditer(r'<span class="folder-one-line.*?href="(?P<url>[^"]*?(?P<id>\d*))"[^>]*>(?P<name>[^<]*)<', content):
             data = rx.groupdict()
-            data['name'] = data['name'].decode('utf8')
+            data['name'] = PLchar(data['name']).decode('utf8')
             data['url'] = getDobryUrl(data['url'])
             folders.append(Folder(**data))
-        out= {'url': url,
-              'title': unicode(title, 'utf-8'),
-              'code': code,
-              'plot': unicode(plot, 'utf-8'),
-              'img': img,
-              'duration': duration,
-              'user': user,
-              'folders': folders,
-              }
-    return out
+        if len(folders) > 1:  # more then root
+            if folders[1].name == u'Folder główny':
+                # root foler was in top of folders tree
+                folders[1] = folders[1]._replace(url=folders[0].url)
+                folders.pop(0)
+            return {'url': url,
+                    'title': folders[-1].name,
+                    'user': userfolder,
+                    'folders': folders[:-1],  # without current
+                    'username': username,
+                    }
+    return {}
 
 import htmlentitydefs
 def html_entity_decode_char(m):

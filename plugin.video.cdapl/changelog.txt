@@ -1,3 +1,41 @@
+2.8
+
+- Logowanie premium (pre-paid / przelewem)
+- Fix ikon folderów
+- Hasło do folderu użytkownika
+- Dodanie „folder filmu” dla plików użytkowników (poza tym samym folderem)
+    - Dodanie „folder nadrzędny”
+    - Rozszerzenie „folder nadrzędny” na opcje katalogów
+- Rozdzielenie listy „folder Użytkownika”, teraz pokazuje ostatni i link do katalogu głównego
+- MojeCDA:
+    - Poprawne linki przy logowaniu emailem
+    - Dodanie „historia (oglądane)”
+    - Dodanie „obejrzyj później”
+    - Usunąć "obserwowani użytkownicy"
+    - Cofanie ← w historii i obejrzyj później wyskakuje do planszy głównej zamiast cofnąć o stronę
+- Poprawa „wybranych” (we wtyczce)
+    - Możliwość dodawania folderów do „wybranych”
+    - Fix usuwania, żeby w ogóle się pokazywały opcje menu kontekstowym
+    - Usuwanie pozycji a nie wszystkich, w których zawiera się tytuł
+- Fix „poprzednia strona”, teraz wraca do poprzedniej
+- Wyszukiwanie
+    - Fix usuwania pozycji z historii wyszukiwania
+    - Obsługa średnika w szukanej nazwie (teraz tworzą się dwa wpisy)
+    - Przenieść historię wyszukiwania do danych wtyczki
+- Nowe ikonki, by @notoco
+- Wywalenie nieszczęsnego „-=Opcje=- -„
+- Zmiana geometrii, kwadraty zamiast prostokątów w listach własnych
+- Pozbycie się ściany błędów `ERROR: NEWADDON Unknown Video Info Key`
+- Sposób na zmianę widoku `root` i w innych katalogach `json_file` (w tym `pastebin`), URL i fragment `info-type`
+- Zmiana nazwy z „Root” na „Filmy”
+- Premium
+    - Ikony do kategorii, by @notoco
+    - kolejność pozycji specjalnych (opcje, następna strona)
+    - sortowanie także po oglądalności w „ostatnie 7 dni” i „ostatnie 3 dni”
+    - Opcje zawsze na górze
+- Stronicowanie (`<<` i `>>` zawsze na właściwych końcach
+- Czyszczenia kodu
+
 2.7
 - poprawka szukania
 
