@@ -1,19 +1,27 @@
 # -*- coding: utf-8 -*-
 
 import sys
+from .tools import PY3, U
 from collections import namedtuple, OrderedDict
 # from multiprocessing.pool import ThreadPool
-import cookielib
-import urlparse
-import urllib2, urllib
+if PY3:
+    from http import cookiejar as cookielib
+    from urllib.parse import unquote, urlencode
+    from html import entities as htmlentitydefs
+    basestring = str
+    unicode = str
+else:
+    import cookielib
+    from urllib import unquote, urlencode
+    import htmlentitydefs
+from .tools import urlparse
 import re, os
 import json
-import jsunpack
+from . import jsunpack
 import xbmcaddon
 import xbmcgui
-from urllib import unquote, urlencode
 import requests
-from tools import find_re
+from .tools import find_re
 import xbmc  # log
 
 
@@ -72,8 +80,10 @@ def getUrl(url, data=None, cookies=None, refer=False, return_response=False):
             resp = sess.post(url, headers=headersok, data=data)
         else:
             resp = sess.get(url, headers=headersok)
-        content = resp if return_response else resp.content
-    except:
+        # content = resp if return_response else resp.content
+        content = resp if return_response else resp.text
+    except Exception as exc:
+        print(exc)
         content = None if return_response else ''
     return content
 
@@ -114,7 +124,7 @@ def CDA_login(USER, PASS, COOKIEFILE):
         response = sess.post('https://www.cda.pl/login', headers=headers, data=data)
         ab = response.cookies
         ac = sess.cookies
-        content = response.content.replace("'", '"')
+        content = response.text.replace("'", '"')
 
         rodzaj = re.search('Twoje konto:(.+?)</span>|(Premium aktywne)', content)
         if rodzaj:
@@ -135,8 +145,8 @@ def CDA_login(USER, PASS, COOKIEFILE):
             cj.clear()
             cj.save(COOKIEFILE, ignore_discard=True)
             my_addon.setSetting('loginCookie', '')
-    except:
-        pass
+    except Exception as exc:
+        print('Login failed', exc)
     return LoginInfo(status, typ, username)
 
 def _get_encoded_unpaker(content):
@@ -460,7 +470,7 @@ def get_UserFolder_content(urlF, recursive=True, filtr_items={}):
                 cnt +=1
                 _items.append(item)
         items = _items
-        print 'Filted %d items by [%s in %s]' % (cnt, value, key)
+        print('Filted %d items by [%s in %s]' % (cnt, value, key))
     return UserFolder(items, folders, pagination, tree)
 
 def get_UserFolder_historia(url, recursive=True):
@@ -553,8 +563,8 @@ def searchCDA(url,premka=False,opisuj=1):
 
 def print_toJson(items):
     for i in items:
-        print i.get('title')
-        print '{"title":"%s","url":"%s","code":"%s"}' % (i.get('title'),i.get('url'),i.get('code'))
+        print(i.get('title'))
+        print('{"title":"%s","url":"%s","code":"%s"}' % (i.get('title'),i.get('url'),i.get('code')))
 
 def cleanTitle(title):
     pattern = re.compile('[(\\[{;,/,\\\\]')
@@ -648,14 +658,13 @@ def grabInforFromLink(url):
                     }
     return {}
 
-import htmlentitydefs
 def html_entity_decode_char(m):
     ent = m.group(1)
     if ent.startswith('x'):
         return unichr(int(ent[1:],16))
     try:
         return unichr(int(ent))
-    except Exception, exception:
+    except Exception as exception:
         if ent in htmlentitydefs.name2codepoint:
             return unichr(htmlentitydefs.name2codepoint[ent])
         else:
@@ -692,29 +701,24 @@ def xpath(mydict, path=''):
 
 def jsconWalk(data, path):
     lista_katalogow = []
-    lista_pozycji=[]
+    lista_pozycji = []
 
     elems = xpath(data, path)
     if isinstance(elems, dict):
         # created directory
-        for e, one in elems.iteritems():
+        for e, one in elems.items():
             if isinstance(one, basestring):
-                lista_katalogow.append( {'img':'','title':e,'url':"", "jsonfile" :one} )
-            elif type(one) is dict and one.has_key('jsonfile'): # another json file v2
-                one['title']=e  # dodaj tytul
-                one['url']=''
-                lista_katalogow.append( one )
+                lista_katalogow.append({'img': '', 'title': e, 'url': "", "jsonfile": one})
+            elif type(one) is dict and 'jsonfile' in one:  # another json file v2
+                one['title'] = e  # dodaj tytul
+                one['url'] = ''
+                lista_katalogow.append(one)
             else:
-                if isinstance(e, unicode):
-                    e = e.encode('utf8')
-                elif isinstance(e, str):
-                    # Must be encoded in UTF-8
-                    e.decode('utf8')
-                lista_katalogow.append( {'img':'','title':e,'url':path+'/'+e,'fanart':''} )
+                lista_katalogow.append({'img': '', 'title': U(e), 'url': path+'/'+e, 'fanart': ''})
         if lista_katalogow:
-             lista_katalogow= sorted(lista_katalogow, key=lambda k: (k.get('idx',''),k.get('title','')))
+            lista_katalogow = sorted(lista_katalogow, key=lambda k: (k.get('idx', ''), k.get('title', '')))
     elif type(elems) is list:
-        print 'List items'
+        print('List items')
         for one in elems:
             # check if direct link or User folder:
             if one.has_key('url'):

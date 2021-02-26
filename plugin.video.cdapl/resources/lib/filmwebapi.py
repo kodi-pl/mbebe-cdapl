@@ -55,7 +55,7 @@ def _processResponse(response,_response_keys):
     else:
         j_data=json.loads(data)
         N=len(j_data)
-        for k,v in _response_keys.iteritems():
+        for k,v in _response_keys.items():
             if j_data[k]==None:
                 j_data[k]=''
             if N>= k: out[v]=j_data[k]

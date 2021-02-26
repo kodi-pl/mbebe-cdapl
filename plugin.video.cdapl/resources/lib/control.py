@@ -145,9 +145,9 @@ def apiLanguage(ret_name=None):
     lang['tvdb'] = name if name in tvdb else 'en'
     lang['youtube'] = name if name in youtube else 'en'
     if ret_name:
-        lang['trakt'] = [i[0] for i in langDict.iteritems() if i[1] == lang['trakt']][0]
-        lang['tvdb'] = [i[0] for i in langDict.iteritems() if i[1] == lang['tvdb']][0]
-        lang['youtube'] = [i[0] for i in langDict.iteritems() if i[1] == lang['youtube']][0]
+        lang['trakt'] = [i[0] for i in langDict.items() if i[1] == lang['trakt']][0]
+        lang['tvdb'] = [i[0] for i in langDict.items() if i[1] == lang['tvdb']][0]
+        lang['youtube'] = [i[0] for i in langDict.items() if i[1] == lang['youtube']][0]
     return lang
 def version():
     num = ''
