@@ -1,30 +1,31 @@
 # -*- coding: utf-8 -*-
 
 import sys
-from .tools import PY3, U
 from collections import namedtuple, OrderedDict
-# from multiprocessing.pool import ThreadPool
-if PY3:
-    from http import cookiejar as cookielib
-    from urllib.parse import unquote, urlencode
-    from html import entities as htmlentitydefs
-    basestring = str
-    unicode = str
-else:
-    import cookielib
-    from urllib import unquote, urlencode
-    import htmlentitydefs
-from .tools import urlparse
+import six
+from six.moves import urllib_parse, http_cookiejar
+from six import iteritems, unichr
+
 import re, os
 import json
-from . import jsunpack
+from resources.lib import jsunpack
 import xbmcaddon
 import xbmcgui
+
 import requests
-from .tools import find_re
-import xbmc  # log
+from resources.lib.tools import find_re
+import xbmc  
 
-
+if six.PY3:
+    unicode = str
+    basestring = str
+    xrange = range
+    import html.entities as htmlentitydefs
+else:
+    import htmlentitydefs
+	
+	
+	
 #: User folder content (sub-folders, items, etc.)
 UserFolder = namedtuple('UserFolder', 'folders items pagination tree')
 
@@ -51,7 +52,7 @@ kukz =  my_addon.getSetting('loginCookie')
 COOKIEFILE = ''
 addon_data = None
 sess= requests.Session()
-sess.cookies = cookielib.LWPCookieJar(COOKIEFILE)
+sess.cookies = http_cookiejar.LWPCookieJar(COOKIEFILE)
 cj=sess.cookies
 
 
@@ -80,10 +81,11 @@ def getUrl(url, data=None, cookies=None, refer=False, return_response=False):
             resp = sess.post(url, headers=headersok, data=data)
         else:
             resp = sess.get(url, headers=headersok)
-        # content = resp if return_response else resp.content
-        content = resp if return_response else resp.text
-    except Exception as exc:
-        print(exc)
+        content = resp if return_response else resp.content
+        if six.PY3 and not return_response:
+            content = content.decode(encoding='utf-8', errors='strict') 
+
+    except:
         content = None if return_response else ''
     return content
 
@@ -103,6 +105,7 @@ def CDA_login(USER, PASS, COOKIEFILE):
     status = False
     typ = False
     username = USER
+    plotx = ''
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:67.0) Gecko/20100101 Firefox/67.0',
@@ -124,7 +127,10 @@ def CDA_login(USER, PASS, COOKIEFILE):
         response = sess.post('https://www.cda.pl/login', headers=headers, data=data)
         ab = response.cookies
         ac = sess.cookies
-        content = response.text.replace("'", '"')
+        content = response.content
+        if six.PY3:
+            content = content.decode(encoding='utf-8', errors='strict') 
+        content = content.replace("'", '"')
 
         rodzaj = re.search('Twoje konto:(.+?)</span>|(Premium aktywne)', content)
         if rodzaj:
@@ -133,7 +139,17 @@ def CDA_login(USER, PASS, COOKIEFILE):
 
             if 'darmowe' in rodzaj.group(0):  # whole matched string
                 my_addon.setSetting('premka', 'false')
+                plotx = ''
             else:
+
+                ac= re.findall('ico1User\s*1settings\s*"\s*href="(.+?\/)', content,re.DOTALL)
+                nturl = 'https://www.cda.pl%spremium'%(ac[0])
+                html = sess.get(nturl, headers=headers).content
+                if six.PY3:
+                    html = html.decode(encoding='utf-8', errors='strict') 
+
+                wado =re.findall('<p>(\d+\/\d+)<\/p>',html)
+                plotx = wado[0] if wado else ''
                 my_addon.setSetting('premka', 'true')
                 typ=True
             my_addon.setSetting('loginCookie', cookies)
@@ -145,9 +161,9 @@ def CDA_login(USER, PASS, COOKIEFILE):
             cj.clear()
             cj.save(COOKIEFILE, ignore_discard=True)
             my_addon.setSetting('loginCookie', '')
-    except Exception as exc:
-        print('Login failed', exc)
-    return LoginInfo(status, typ, username)
+    except:
+        pass
+    return LoginInfo(status, typ, username),plotx
 
 def _get_encoded_unpaker(content):
     src =''
@@ -265,7 +281,7 @@ def scanforVideoLink(content):
         if not linkvid.startswith('http'):
             linkvid = 'https://'+linkvid
         return linkvid
-    video_link = cdadecode(unquote(video_link))
+    video_link = cdadecode(urllib_parse.unquote(video_link))
     if video_link.startswith('uggc'):
         zx = lambda x: 0 if not x.isalpha() else -13 if 'A' <=x.upper()<='M' else 13
         video_link = ''.join([chr((ord(x)-zx(x)) ) for x in video_link])
@@ -401,7 +417,9 @@ def _scan_UserFolder(url, recursive=True, items=None, folders=None):
     folder_tree = []
     for rx in re.finditer(r'<span class="folder-one-line.*?href="(?P<url>[^"]*?(?P<id>\d*))"[^>]*>(?P<name>[^<]*)<', content):
         data = rx.groupdict()
-        data['name'] = PLchar(data['name']).decode('utf8')
+        
+        a1 = PLchar(data['name']).decode('utf8') if six.PY2 else PLchar(data['name'])
+        data['name'] = a1
         data['url'] = getDobryUrl(data['url'])
         folder_tree.append(Folder(**data))
     if folder_tree and folder_tree[0].name == u'Folder główny':
@@ -428,7 +446,10 @@ def _scan_UserFolder(url, recursive=True, items=None, folders=None):
             code = matchHD[0] if matchHD else ''
             plot = PLchar(matchIM[0][0]) if matchIM else ''
             img = getDobryUrlImg(matchIM[0][1]) if matchIM else ''
-            items.append({'url':url,'title':unicode(title,'utf-8'),'code':code.encode('utf-8'),'plot':unicode(plot,'utf-8'),'img':img,'duration':duration})
+            t1 = unicode(title,'utf-8') if six.PY2 else title
+            c1 = code.encode('utf-8') if six.PY2 else code
+            p1 = unicode(plot,'utf-8') if six.PY2 else plot
+            items.append({'url':url,'title':t1,'code':c1,'plot':p1 ,'img':img,'duration':duration})
 
     folders_links = re.compile('class="folder-area">[ \t\n]+<a[ \t\n]+href="(.*?)"',re.DOTALL).findall(content)
     folders_names = re.compile('<span[ \t\n]+class="name-folder">(.*?)</span>',re.DOTALL).findall(content)
@@ -463,14 +484,18 @@ def get_UserFolder_content(urlF, recursive=True, filtr_items={}):
     _items=[]
     if filtr_items:
         cnt=0
-        key = filtr_items.keys()[0]
-        value = filtr_items[key].encode('utf-8')
+        if six.PY2:
+            key = filtr_items.keys()[0] #if six.PY2 else list( filtr_items.keys()[0])
+            value = filtr_items[key].encode('utf-8')
+        else:
+            key = list( filtr_items.keys())[0]
+            value = filtr_items[key]
         for item in items:
             if value in item.get(key):
                 cnt +=1
                 _items.append(item)
         items = _items
-        print('Filted %d items by [%s in %s]' % (cnt, value, key))
+      #  print 'Filted %d items by [%s in %s]' % (cnt, value, key)
     return UserFolder(items, folders, pagination, tree)
 
 def get_UserFolder_historia(url, recursive=True):
@@ -563,8 +588,8 @@ def searchCDA(url,premka=False,opisuj=1):
 
 def print_toJson(items):
     for i in items:
-        print(i.get('title'))
-        print('{"title":"%s","url":"%s","code":"%s"}' % (i.get('title'),i.get('url'),i.get('code')))
+        print (i.get('title'))
+        print ('{"title":"%s","url":"%s","code":"%s"}' % (i.get('title'),i.get('url'),i.get('code')))
 
 def cleanTitle(title):
     pattern = re.compile('[(\\[{;,/,\\\\]')
@@ -658,6 +683,7 @@ def grabInforFromLink(url):
                     }
     return {}
 
+
 def html_entity_decode_char(m):
     ent = m.group(1)
     if ent.startswith('x'):
@@ -671,10 +697,16 @@ def html_entity_decode_char(m):
             return ent
 
 def html_entity_decode(string):
-    string = string.decode('UTF-8')
-    pattern = 'JiM/KFx3Kz8pOw=='
-    s = re.compile(pattern.decode('base64')).sub(html_entity_decode_char, string)
-    return s.encode('UTF-8')
+    try:
+        string = string.decode('UTF-8')
+    except:
+        pass
+    pattern = '&#?(\w+?);'
+    s = re.compile(pattern).sub(html_entity_decode_char, string)
+    s.encode('UTF-8')
+   # except:
+   #     pass
+    return s
 
 def ReadJsonFile(jfilename):
     content = '[]'
@@ -693,7 +725,8 @@ def xpath(mydict, path=''):
     if path:
         try:
             for x in path.strip('/').split('/'):
-                elem = elem.get(x.decode('utf-8'))
+                x1= x.decode('utf-8') if six.PY2 else x
+                elem = elem.get(x1)
         except:
             pass
     return elem
@@ -701,33 +734,39 @@ def xpath(mydict, path=''):
 
 def jsconWalk(data, path):
     lista_katalogow = []
-    lista_pozycji = []
+    lista_pozycji=[]
 
     elems = xpath(data, path)
     if isinstance(elems, dict):
         # created directory
-        for e, one in elems.items():
+        for e, one in iteritems( elems):
             if isinstance(one, basestring):
-                lista_katalogow.append({'img': '', 'title': e, 'url': "", "jsonfile": one})
-            elif type(one) is dict and 'jsonfile' in one:  # another json file v2
-                one['title'] = e  # dodaj tytul
-                one['url'] = ''
-                lista_katalogow.append(one)
+                lista_katalogow.append( {'img':'','title':e,'url':"", "jsonfile" :one} )
+            elif type(one) is dict and 'jsonfile' in one:#.has_key('jsonfile'): # another json file v2
+                one['title']=e  # dodaj tytul
+                one['url']=''
+                lista_katalogow.append( one )
             else:
-                lista_katalogow.append({'img': '', 'title': U(e), 'url': path+'/'+e, 'fanart': ''})
+                if six.PY2:
+                    if isinstance(e, unicode):
+                        e = e.encode('utf8')
+                    elif isinstance(e, str):
+                        # Must be encoded in UTF-8
+                        e.decode('utf8')
+                lista_katalogow.append( {'img':'','title':e,'url':path+'/'+e,'fanart':''} )
         if lista_katalogow:
-            lista_katalogow = sorted(lista_katalogow, key=lambda k: (k.get('idx', ''), k.get('title', '')))
+             lista_katalogow= sorted(lista_katalogow, key=lambda k: (k.get('idx',''),k.get('title','')))
     elif type(elems) is list:
-        print('List items')
+        print ('List items')
         for one in elems:
             # check if direct link or User folder:
-            if one.has_key('url'):
+            if 'url' in one:
                 if 'folder' in one:
                     # just link to folder, get no content
                     lista_katalogow.append(one)
                 else:
                     lista_pozycji.append(one)
-            elif one.has_key('folder'):        #This is folder in cda.pl get content:
+            elif 'folder' in one:       #This is folder in cda.pl get content:
                 filtr_items = one.get('flter_item',{})
                 show_subfolders = one.get('subfoders',True)
                 show_items = one.get('items',True)
@@ -736,9 +775,9 @@ def jsconWalk(data, path):
                 userfolder = get_UserFolder_content(urlF=one.get('folder',''), recursive=is_recursive,
                                                     filtr_items=filtr_items)
                 if show_subfolders:
-                    lista_katalogow.extend(userfolder.folders)
+                    lista_katalogow.extend(userfolder.items)
                 if show_items:
-                    lista_pozycji.extend(userfolder.items)
+                    lista_pozycji.extend(userfolder.folders)
 
     return (lista_pozycji, lista_katalogow)
 
@@ -752,7 +791,7 @@ def jsconWalk2(data,path):
             one=elems.get(e)
             if type(one) is str or type(one) is unicode:
                 lista_katalogow.append( {'img':'','title':e,'url':'', 'jsonfile' :one} )
-            elif type(one) is dict and one.has_key('jsonfile'):
+            elif type(one) is dict and 'jsonfile' in one:#.has_key('jsonfile'):
                 one['title']=e
                 one['url']=''
                 lista_katalogow.append( one )
@@ -766,9 +805,9 @@ def jsconWalk2(data,path):
              lista_katalogow= sorted(lista_katalogow, key=lambda k: (k.get('idx',''),k.get('title','')))
     if type(elems) is list:
         for one in elems:
-            if one.has_key('url'):
+            if 'url' in one:
                 lista_pozycji.append( one )
-            elif one.has_key('folder'):
+            elif 'folder' in one:
                 filtr_items = one.get('flter_item',{})
                 show_subfolders = one.get('subfoders',True)
                 show_items = one.get('items',True)
@@ -784,8 +823,8 @@ def jsconWalk2(data,path):
 def PLchar(char):
     if type(char) is not str:
         char=char.encode('utf-8')
-    s='JiNcZCs7'
-    char = re.sub(s.decode('base64'),'',char)
+    #s='JiNcZCs7'
+    #char = re.sub(s.decode('base64'),'',char)
     char = re.sub('<span style="color:#555">','',char)
     char = re.sub('<br\\s*/>','\n',char)
     char = char.replace('&nbsp;','')
@@ -824,8 +863,10 @@ def premium_readContent(content):
     ids = [a.start() for a in re.finditer('<span class="cover-area">', content)]
     ids.append(-1)  # without last character, but never mind
     out = []
+
     for i in xrange(len(ids) - 1):
         item = content[ids[i]:ids[i+1]]
+
         href = find_re('<a href="(.*?)"', item)
         title= find_re('class="kino-title">(.*?)<', item)
         img = find_re('src="(.*?)"', item)
@@ -876,8 +917,10 @@ def premium_Content(url, params=''):
     Value have to be set as `params` in next call.
     None value is forbiden.
     """
+
     if not params:
         content = getUrl(url, cookies=kukz)
+
         out = premium_readContent(content)
         match = re.search(r'katalogLoadMore\(page,"(.*?)","(.*?)",', content)
         if match:
@@ -887,10 +930,10 @@ def premium_Content(url, params=''):
         sp = params.split('_')
         myparams = str([int(sp[0]), sp[1], sp[2], {}])
         payload = '{"jsonrpc":"2.0","method":"katalogLoadMore","params":%s,"id":2}' % myparams
-        url = urlparse.urlparse(url or '')
+        url = urllib_parse.urlparse(url or '')
         query = OrderedDict(urlparse.parse_qsl(url.query))
         query.pop('sort', None)
-        url = urlparse.urlunparse(url._replace(query=urlencode(query)))
+        url = urllib_parse.urlunparse(url._replace(query=urllib_parse.urlencode(query)))
         content = getUrl(url, data=payload.replace("'", '"'), refer=True, cookies=kukz)
         jtmp = json.loads(content).get('result') if content else {}
         if jtmp.get('status') =='continue':

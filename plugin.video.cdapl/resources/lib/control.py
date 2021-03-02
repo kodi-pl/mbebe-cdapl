@@ -3,16 +3,18 @@
 
 
 #CONTROL.py
-
+import six
+from six.moves import urllib_parse
+from six import iteritems#, unichr
 import os
 import sys
-import urllib
-import urlparse
+#import urllib
+#import urlparse
 import xbmc
 import xbmcaddon
 import xbmcgui
 import xbmcplugin
-import xbmcvfs
+import xbmcvfs 
 integer = 1000
 lang = xbmcaddon.Addon().getLocalizedString
 lang2 = xbmc.getLocalizedString
@@ -46,10 +48,21 @@ makeFile = xbmcvfs.mkdir
 deleteFile = xbmcvfs.delete
 deleteDir = xbmcvfs.rmdir
 listDir = xbmcvfs.listdir
-transPath = xbmc.translatePath
-skinPath = xbmc.translatePath('special://skin/')
-addonPath = xbmc.translatePath(addonInfo('path'))
-dataPath = xbmc.translatePath(addonInfo('profile')).decode('utf-8')
+
+if six.PY3:
+    transPath = xbmcvfs.translatePath
+    skinPath = xbmcvfs.translatePath('special://skin/')
+    addonPath = xbmcvfs.translatePath(addonInfo('path'))
+    dataPath = xbmcvfs.translatePath(addonInfo('profile'))#.decode('utf-8')
+else:
+    transPath = xbmc.translatePath
+    skinPath = xbmc.translatePath('special://skin/')
+    addonPath = xbmc.translatePath(addonInfo('path'))
+    dataPath = xbmc.translatePath(addonInfo('profile')).decode('utf-8')
+
+
+
+#dataPath = xbmc.translatePath(addonInfo('profile')).decode('utf-8')
 settingsFile = os.path.join(dataPath, 'settings.xml')
 viewsFile = os.path.join(dataPath, 'views.db')
 bookmarksFile = os.path.join(dataPath, 'bookmarks.db')
@@ -92,12 +105,12 @@ def addonName():
     return addonInfo('name')
 def get_plugin_url(queries):
     try:
-        query = urllib.urlencode(queries)
+        query = urllib_parse.urlencode(queries)
     except UnicodeEncodeError:
         for k in queries:
             if isinstance(queries[k], unicode):
                 queries[k] = queries[k].encode('utf-8')
-        query = urllib.urlencode(queries)
+        query = urllib_parse.urlencode(queries)
     addon_id = sys.argv[0]
     if not addon_id: addon_id = addonId()
     return addon_id + '?' + query
@@ -111,7 +124,7 @@ def appearance():
     return appearance
 def artwork():
     execute('RunPlugin(plugin://script.covenant.artwork)')
-	
+    
 def  infoDialog(message, heading=addonInfo('name'), icon='', time=3000, sound=False):
     if icon == '': icon = addonIcon()
     elif icon == 'INFO': icon = xbmcgui.NOTIFICATION_INFO
@@ -123,7 +136,7 @@ def yesnoDialog(line1, line2, line3, heading=addonInfo('name'), nolabel='', yesl
 def selectDialog(list, heading=addonInfo('name')):
     return dialog.select(heading, list)
 def moderator():
-    netloc = [urlparse.urlparse(sys.argv[0]).netloc, '', 'plugin.video.live.streamspro', 'plugin.video.phstreams', 'plugin.video.cpstreams', 'plugin.video.tinklepad', 'script.tvguide.fullscreen', 'script.tvguide.assassins']
+    netloc = [urllib_parse.urlparse(sys.argv[0]).netloc, '', 'plugin.video.live.streamspro', 'plugin.video.phstreams', 'plugin.video.cpstreams', 'plugin.video.tinklepad', 'script.tvguide.fullscreen', 'script.tvguide.assassins']
     if not infoLabel('Container.PluginName') in netloc: sys.exit()
 def metaFile():
     if condVisibility('System.HasAddon(script.covenant.metadata)'):
@@ -145,9 +158,9 @@ def apiLanguage(ret_name=None):
     lang['tvdb'] = name if name in tvdb else 'en'
     lang['youtube'] = name if name in youtube else 'en'
     if ret_name:
-        lang['trakt'] = [i[0] for i in langDict.items() if i[1] == lang['trakt']][0]
-        lang['tvdb'] = [i[0] for i in langDict.items() if i[1] == lang['tvdb']][0]
-        lang['youtube'] = [i[0] for i in langDict.items() if i[1] == lang['youtube']][0]
+        lang['trakt'] = [i[0] for i in iteritems(langDict) if i[1] == lang['trakt']][0]
+        lang['tvdb'] = [i[0] for i in iteritems(langDict) if i[1] == lang['tvdb']][0]
+        lang['youtube'] = [i[0] for i in iteritems(langDict) if i[1] == lang['youtube']][0]
     return lang
 def version():
     num = ''

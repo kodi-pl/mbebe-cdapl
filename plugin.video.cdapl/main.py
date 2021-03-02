@@ -1,20 +1,23 @@
 # -*- coding: utf-8 -*-
+import six
+from six.moves import urllib_parse
+from six import iteritems
 
 import sys, re, os
 from collections import namedtuple
-import xbmc, xbmcgui, xbmcaddon
+
+import xbmc, xbmcgui, xbmcaddon, xbmcvfs
 import xbmcplugin
 import json, time
 import StorageServer
 from resources.lib import cdapl as cda
 from resources.lib.udata import AddonUserData
-from resources.lib.tools import PY3, U, uclean, NN, fragdict
-from resources.lib.tools import urlparse
-if PY3:
-    from urllib.parse import quote, quote_plus, urlencode
-else:
-    from urllib import quote, quote_plus, urlencode
-
+from resources.lib.tools import U, uclean, NN, fragdict
+if six.PY3:
+    basestring = str
+    unicode = str
+    xrange = range
+    
 
 #: Elemt to add by addDirectoryItems
 AItem = namedtuple('AItem', 'url item isfolder')
@@ -25,13 +28,21 @@ cache = StorageServer.StorageServer('cda')
 
 base_url        = sys.argv[0]
 addon_handle    = int(sys.argv[1])
-args            = urlparse.parse_qs(sys.argv[2][1:])
+args            = urllib_parse.parse_qs(sys.argv[2][1:])
 my_addon        = xbmcaddon.Addon()
 my_addon_id     = my_addon.getAddonInfo('id')
 PATH        = my_addon.getAddonInfo('path')
-DATAPATH    = U(xbmc.translatePath(my_addon.getAddonInfo('profile')))
+
+
+if six.PY3:
+
+    DATAPATH        = xbmcvfs.translatePath(my_addon.getAddonInfo('profile'))
+else:
+    DATAPATH        = xbmc.translatePath(my_addon.getAddonInfo('profile')).decode('utf-8')
+
 RESOURCES   = os.path.join(PATH, 'resources')
 MEDIA       = os.path.join(RESOURCES, 'media')
+
 if not os.path.exists(MEDIA):
     MEDIA = RESOURCES
 FAVORITE    = os.path.join(DATAPATH, 'favorites.json')
@@ -58,7 +69,7 @@ del _old_search_history
 
 
 infoLabels_allowed = {
-    None: {'count', 'size', 'date'},
+    None: {'count', 'size', 'date', 'plot'},
     'video': {'genre', 'country', 'year', 'episode', 'season', 'sortepisode', 'sortseason', 'episodeguide',
               'showlink', 'top250', 'setid', 'tracknumber', 'rating', 'userrating', 'watched', 'playcount',
               'overlay', 'cast', 'castandrole', 'director', 'mpaa', 'plot', 'plotoutline', 'title',
@@ -82,9 +93,9 @@ def media(name):
 def mkinfo(type, infoLabels):
     """Filter labels by allowed names for given type."""
     allowed = infoLabels_allowed[None] | infoLabels_allowed.get(type.lower(), set())
-    labels = {k: v for k, v in infoLabels.items() if k.lower() in allowed}
+    labels = {k: v for k, v in iteritems(infoLabels) if k.lower() in allowed}
     if type == 'picture':
-        labels.update((k, v) for k, v in infoLabels.items() if k.lower().startswith('exif'))
+        labels.update((k, v) for k, v in iteritems(infoLabels) if k.lower().startswith('exif'))
     return type, labels
 
 
@@ -95,7 +106,7 @@ def addLinkItem(name, url, mode, iconImage=None, infoLabels=False, contextO=['F_
         iconImage = 'DefaultFolder.png'
     if not infoLabels:
         infoLabels = {'title': name}
-    liz = xbmcgui.ListItem(name, iconImage=iconImage, thumbnailImage=iconImage)
+    liz = xbmcgui.ListItem(name)#, iconImage=iconImage, thumbnailImage=iconImage)
     liz.setArt({'poster': iconImage, 'thumb': iconImage, 'icon': iconImage, 'fanart': fanart, 'banner': iconImage})
     liz.setInfo(*mkinfo(type='video', infoLabels=infoLabels))
     if IsPlayable:
@@ -113,27 +124,27 @@ def createContextMenuFolderFlags(contextMenuItems, infoLabels, contextO, url, li
     if not url:
         url = infoLabels.get('url', '')
     if 'F_USER' in contextO:
-        contextMenuItems.append((u'[COLOR lightblue]Folder Użytkownika[/COLOR]', 'XBMC.Container.Update(%s)' %
-                                 build_url({'mode': 'UserContent', 'ex_link': quote(url)})))
+        contextMenuItems.append((u'[COLOR lightblue]Folder Użytkownika[/COLOR]', 'Container.Update(%s)' %
+                                 build_url({'mode': 'UserContent', 'ex_link': urllib_parse.quote(url)})))
     if 'F_FOLDER' in contextO:
-        contextMenuItems.append((u'[COLOR lightblue]Folder filmu[/COLOR]', 'XBMC.Container.Update(%s)' %
-                                 build_url({'mode': 'FolderContent', 'ex_link': quote(url),
+        contextMenuItems.append((u'[COLOR lightblue]Folder filmu[/COLOR]', 'Container.Update(%s)' %
+                                 build_url({'mode': 'FolderContent', 'ex_link': urllib_parse.quote(url),
                                             'select': infoLabels.get('title')})))
     if 'F_FOLDER_UP' in contextO:
-        contextMenuItems.append((u'[COLOR lightblue]Folder nadrzędny[/COLOR]', 'XBMC.Container.Update(%s)' %
-                                 build_url({'mode': 'FolderContent', 'ex_link': quote(url),
+        contextMenuItems.append((u'[COLOR lightblue]Folder nadrzędny[/COLOR]', 'Container.Update(%s)' %
+                                 build_url({'mode': 'FolderContent', 'ex_link': urllib_parse.quote(url),
                                             'select': infoLabels.get('title'), 'up': '2'})))
 
 def GetcontextMenuItemsXX(infoLabels, contextO, url, liz=None):
     contextMenuItems = []
     contextMenuItems.append((u'[COLOR lightblue]Informacja[/COLOR]', 'XBMC.Action(Info)'))
     createContextMenuFolderFlags(contextMenuItems, infoLabels, contextO, url, liz)
-    content = quote_plus(json.dumps(infoLabels))
+    content = urllib_parse.quote_plus(json.dumps(infoLabels))
     if 'F_ADD' in contextO:
         contextMenuItems.append((u'[COLOR lightblue]Dodaj do Biblioteki[/COLOR]',
-                                 'XBMC.Container.Update(plugin://%s?mode=AddMovie&ex_link=%s)' % (my_addon_id, content)))
+                                 'Container.Update(plugin://%s?mode=AddMovie&ex_link=%s)' % (my_addon_id, content)))
         contextMenuItems.append((u'[COLOR lightblue]Wybór jakości [/COLOR]',
-                                 'XBMC.Container.Update(%s)' % build_url({'mode': 'decodeVideoManualQ', 'ex_link' : quote(url)})))
+                                 'Container.Update(%s)' % build_url({'mode': 'decodeVideoManualQ', 'ex_link' : urllib_parse.quote(url)})))
         contextMenuItems.append((u'[COLOR lightblue]Dodaj do Wybranych[/COLOR]',
                                  'RunPlugin(plugin://%s?mode=favoritesADD&ex_link=%s)' % (my_addon_id,content)))
     if 'F_REM' in contextO:
@@ -142,7 +153,7 @@ def GetcontextMenuItemsXX(infoLabels, contextO, url, liz=None):
     if 'F_DEL' in contextO:
         contextMenuItems.append((u'[COLOR red]Usuń Wszystko[/COLOR]',
                                  'RunPlugin(plugin://%s?mode=favoritesREM&ex_link=all)' % (my_addon_id)))
-    if infoLabels.has_key('trailer'):
+    if 'trailer' in infoLabels:#.has_key('trailer'):
         contextMenuItems.append((u'Zwiastun', 'XBMC.PlayMedia(%s)' % infoLabels.get('trailer')))
     return contextMenuItems
 
@@ -150,7 +161,7 @@ def GetContextMenuFoldersXX(infoLabels, contextO):
     menu = []
     jdata = dict(infoLabels)
     jdata.setdefault('folder', infoLabels.get('url'))
-    jdata = quote_plus(json.dumps(jdata))
+    jdata = urllib_parse.quote_plus(json.dumps(jdata))
     createContextMenuFolderFlags(menu, infoLabels, contextO, '')
     if 'F_ADD' in contextO:
         menu.append((u'[COLOR lightblue]Dodaj do Wybranych[/COLOR]',
@@ -170,7 +181,7 @@ def add_Item(name, url, mode, iconImage=None, infoLabels=False, contextO=('F_USE
         iconImage = 'DefaultFolder.png'
     if not infoLabels:
         infoLabels = {'title': name}
-    liz = xbmcgui.ListItem(name)
+    liz = xbmcgui.ListItem(name)#, iconImage=iconImage, thumbnailImage=iconImage)
     liz.setArt({'poster': iconImage, 'thumb': iconImage, 'icon': iconImage, 'fanart': fanart, 'banner': iconImage})
     liz.setInfo(*mkinfo(type='video', infoLabels=infoLabels))
     if IsPlayable:
@@ -187,12 +198,12 @@ def addDir(name, ex_link=None, json_file='', mode='walk', iconImage=None, fanart
            infoLabels=False, totalItems=1, contextmenu=None, item_type='video', properties=None):
     """Create and add folder to current directory list. Returns ListItem or None."""
     url = build_url({'mode': mode, 'foldername': name, 'ex_link': ex_link, 'json_file': json_file})
-    # li = xbmcgui.ListItem(label=name, iconImage='DefaultFolder.png')
+    li = xbmcgui.ListItem(label=name)#, iconImage='DefaultFolder.png')
     if iconImage is None:
         iconImage = 'DefaultFolder.png'
     elif not iconImage.startswith('http'):
         iconImage = os.path.join(MEDIA, iconImage)
-    li = xbmcgui.ListItem(name)
+    li = xbmcgui.ListItem(name)#, iconImage=iconImage, thumbnailImage=iconImage)
     li.setArt({'poster': iconImage, 'thumb': iconImage, 'icon': iconImage, 'banner': iconImage})
     if not infoLabels:
         infoLabels = {'title': name}
@@ -217,44 +228,39 @@ def SelSort():
     xbmcplugin.addSortMethod( handle=addon_handle, sortMethod=xbmcplugin.SORT_METHOD_VIDEO_RUNTIME )
     xbmcplugin.addSortMethod( handle=addon_handle, sortMethod=xbmcplugin.SORT_METHOD_UNSORTED )
 
-if PY3:
-    def encoded_v(v):
-        if isinstance(v, str):
-            return v.encode('utf8')
-        if isinstance(v, bytes):
-            v.decode('utf8')  # just for checking utf-8
-        return v
-else:
-    def encoded_v(v):
+def encoded_dict(in_dict):
+    out_dict = {}
+    for k, v in iteritems(in_dict):
         if isinstance(v, unicode):
             v = v.encode('utf8')
         elif isinstance(v, str):
             v.decode('utf8')
-        return v
-
-def encoded_dict(in_dict):
-    out_dict = {}
-    for k, v in in_dict.items():
-        out_dict[k] = encoded_v(v)
+        out_dict[k] = v
     return out_dict
 
 def build_url(query):
-    return base_url + '?' + urlencode(encoded_dict(query))
+    return base_url + '?' + urllib_parse.urlencode(encoded_dict(query))
 
 def drmlistitem(str_url):
     play_item=''
+    #from urllib import quote
     stream_url=str_url['manifest']
     PROTOCOL = 'mpd'
     DRM = 'com.widevine.alpha'
     LICENSE_URL=str_url['drm_url']
-    headr = quote(str_url['drmheader'])
+    headr = urllib_parse.quote(str_url['drmheader'])
     import inputstreamhelper
     is_helper = inputstreamhelper.Helper(PROTOCOL, drm=DRM)
     if is_helper.check_inputstream():
         hea = 'Content-Type=&x-dt-custom-data='+headr
         play_item = xbmcgui.ListItem(path=stream_url)
         play_item.setContentLookup(False)
-        play_item.setProperty('inputstreamaddon', is_helper.inputstream_addon)
+        
+        if six.PY3:
+            play_item.setProperty('inputstream', is_helper.inputstream_addon)
+        else:
+            play_item.setProperty('inputstreamaddon', is_helper.inputstream_addon)
+      #  play_item.setProperty('inputstreamaddon', is_helper.inputstream_addon)
         play_item.setMimeType('application/xml+dash')
         play_item.setProperty('inputstream.adaptive.manifest_type', PROTOCOL)
         play_item.setProperty('inputstream.adaptive.license_type', DRM)
@@ -281,7 +287,7 @@ def decodeVideo(ex_link):
         if 'cda.pl/video/show/' in stream_url:
             xbmcplugin.setResolvedUrl(addon_handle, False, xbmcgui.ListItem(path=''))
             url = build_url({'mode': 'cdaSearch', 'ex_link' : stream_url})
-            xbmc.executebuiltin('XBMC.Container.Refresh(%s)'% url)
+            xbmc.executebuiltin('Container.Refresh(%s)'% url)
         elif stream_url:
             xbmcplugin.setResolvedUrl(addon_handle, True, xbmcgui.ListItem(path=stream_url))
         else:
@@ -317,7 +323,7 @@ def playVideoRemote2(ex_link):
     if 'cda.pl/video/show/' in stream_url:
         xbmcplugin.setResolvedUrl(addon_handle, False, xbmcgui.ListItem(path=''))
         url = build_url({'mode': 'cdaSearch', 'ex_link' : stream_url})
-        xbmc.executebuiltin('XBMC.RunPlugin(%s)'% url)
+        xbmc.executebuiltin('RunPlugin(%s)'% url)
     elif stream_url:
         li = Set_ListItem(found)
         li.setPath(path=stream_url)
@@ -390,12 +396,11 @@ def userFolder(userF='K1'):
         ('Ą', b'a'),('ą', b'a'),('Ę', b'e'),('ę', b'e'),('Ó', b'o'),('ó', b'o'),('Ć', b'c'),
         ('ć', b'c'),('Ł', b'l'),('ł', b'l'),('Ń', b'n'),('ń', b'n'),('Ś', b's'),('ś', b's'),
         ('Ź', b'z'),('ź', b'z'),('Ż', b'z'),('ż', b'z'),(' ','_')]
-        title = my_addon.getSetting(userF+'_title')
+        title =  my_addon.getSetting(userF+'_title')
         if not title:
             title = title.title()
-        title = U(title)
-        for a, b in list_of_special_chars:
-            title = title.replace(a, U(b))
+        for a,b in list_of_special_chars:
+            title = title.replace(a,b)
         title = title.lower()
         sel = my_addon.getSetting(userF+'_filtr1')
         dlugoscL = ['all','krotkie','srednie','dlugie']
@@ -419,6 +424,11 @@ def get_Root():
     else:
         out['[COLOR red][B]Quota Exceeded[/B][/COLOR]'] = {'jsonfile': jsRootFile, 'img': 'Media.png'}
     return out
+
+def encoded_v(v):
+    if isinstance(v, unicode): v = v.encode('utf8')
+    elif isinstance(v, str): v.decode('utf8')
+    return v
 
 def updateMetadata(item):
     from resources.lib import filmwebapi as fa #import filmwebapi as fa
@@ -450,7 +460,7 @@ def mainWalk(ex_link='', json_file='', fname='', select=''):
         itype = fragdict(json_file).get('info-type')
         if itype:
             xbmcplugin.setContent(addon_handle, itype)
-        items, folders = cda.jsconWalk(data, ex_link)
+        items, folders  = cda.jsconWalk(data, ex_link)
     username = my_addon.getSetting('username')
     ure = re.escape(username) if username else r'[^/]+'
     if re.match(r'^.*?://[^/]+/[^/]+(?:/folder-glowny|/ulubione.*|/folder/.+)?(?:vfilm)?(?:/\d+)?(?:[?#].*)?$', ex_link):
@@ -484,7 +494,7 @@ def mainWalk(ex_link='', json_file='', fname='', select=''):
         if f.get('lib'):
             contextmenu.append((u'[COLOR lightblue]Dodaj zawartość do Biblioteki[/COLOR]',
                                 'RunPlugin(plugin://%s?mode=AddRootFolder&json_file=%s)' %
-                                (my_addon_id, quote_plus(tmp_json_file))))
+                                (my_addon_id, urllib_parse.quote_plus(tmp_json_file))))
         if f.get('url'):
             contextmenu.extend(GetContextMenuFoldersXX(f, contextO))
         li = addDir(title, ex_link=f.get('url'), json_file=tmp_json_file, mode='walk',
@@ -495,7 +505,8 @@ def mainWalk(ex_link='', json_file='', fname='', select=''):
             select = ''
     list_of_items = []
     for item in items:
-        aitem = add_Item(name=item.get('title'), url=item.get('url'), mode='decodeVideo',
+        t1 = item.get('title').encode('utf-8') if six.PY2 else item.get('title')
+        aitem = add_Item(name=t1, url=item.get('url'), mode='decodeVideo',
                          contextO=contextO + contextI, iconImage=item.get('img'), infoLabels=item, IsPlayable=True,
                          fanart=item.get('img'))
         if select and select == item.get('title'):
@@ -529,7 +540,7 @@ def cdaSearch(ex_link):
         xbmc.log('  wait_completion DONE')
     if items:
         for item in items:
-            addLinkItem(name=item.get('title'), url=item.get('url'), mode='decodeVideo',
+            addLinkItem(name=item.get('title').encode('utf-8'), url=item.get('url'), mode='decodeVideo',
                         iconImage=item.get('img'), infoLabels=item, IsPlayable=True, fanart=item.get('img'),
                         totalItems=N_items, contextO=['F_ADD', 'F_FOLDER'])
         if nextpage:
@@ -542,26 +553,30 @@ def logincda():
     u = my_addon.getSetting('user')
     p = my_addon.getSetting('pass')
     if u and p:
-        status = cda.CDA_login(u, p, DATAPATH+'cookie.cda')
+        status,opis = cda.CDA_login(u, p, DATAPATH+'cookie.cda')
+
         if status.logged:
-            plot = 'Konto darmowe'
+            plot = '[B][COLOR red]darmowe[/COLOR][/B]'
             if status.premium:
-                plot = 'Konto premium'
+                plot = '[B][COLOR lightgreen]premium '+opis+'[/COLOR][/B]'
             my_addon.setSetting('username', status.username)
-            addDir('[B]Moje cda.pl[/B]', ex_link='', json_file='', mode='MojeCDA',
-                   iconImage='cdaMoje.png', infoLabels={'plot': plot})
+            addDir('[B]Moje cda.pl[/B] - '+plot, ex_link='', json_file='', mode='MojeCDA',
+                   iconImage='cdaMoje.png', infoLabels={'plot': plot+opis})
 
 
 def HistoryLoad():
     return addon_data.get('history.items', [])
 
 def HistoryAdd(entry):
+    if not isinstance(entry, unicode):
+        entry = entry.decode('utf-8')
     history = HistoryLoad()
-    history.insert(0, U(entry))
+    history.insert(0, entry)
     addon_data.set('history.items', history[:HISTORY_SIZE])
 
 def HistoryDel(entry):
-    entry = U(entry)
+    if not isinstance(entry, unicode):
+        entry = entry.decode('utf-8')
     history = [item for item in HistoryLoad() if item != entry]
     addon_data.set('history.items', history[:HISTORY_SIZE])
 
@@ -621,7 +636,7 @@ elif mode[0].startswith('_info_'):
 elif mode[0].startswith('__page:'):
     my_mode = mode[0].split(':')[-1]
     url = build_url({'mode': my_mode, 'foldername': fname, 'ex_link': ex_link, 'json_file': json_file})
-    xbmc.executebuiltin('XBMC.Container.Refresh(%s)' % url)
+    xbmc.executebuiltin('Container.Refresh(%s)' % url)
     xbmcplugin.endOfDirectory(addon_handle, succeeded=True)
 
 elif mode[0] == 'premiumKat':
@@ -649,19 +664,19 @@ elif mode[0] == 'premiumKat':
 
 elif mode[0] == 'premiumSort':
     sortuj = cda.premium_Sort()
-    selection = xbmcgui.Dialog().select('Sortuj po:', sortuj.keys())
+    selection = xbmcgui.Dialog().select('Sortuj po:', list(sortuj.keys()))
     if selection > -1:
-        my_sort = sortuj.keys()[selection]
+        my_sort = list(sortuj.keys())[selection]
         my_addon.setSetting('sortuj_po', my_sort)
-        xbmc.executebuiltin('XBMC.Container.Refresh')
+        xbmc.executebuiltin('Container.Refresh')
 
 elif mode[0] == 'premiumQuality':
     sortuj = cda.qual_Sort()
-    selection = xbmcgui.Dialog().select('Jako\xc5\x9b\xc4\x87:', sortuj.keys())
+    selection = xbmcgui.Dialog().select('Jako\xc5\x9b\xc4\x87:', list(sortuj.keys()))
     if selection > -1:
-        my_sort = sortuj.keys()[selection]
+        my_sort = list(sortuj.keys())[selection]
         my_addon.setSetting('jakosc_premium',my_sort)
-        xbmc.executebuiltin('XBMC.Container.Refresh')
+        xbmc.executebuiltin('Container.Refresh')
 
 elif mode[0] == 'premiumFilm':
     sortuj_po = my_addon.getSetting('sortuj_po')
@@ -735,7 +750,7 @@ elif mode[0] == 'favoritesREM':
         #         jdata.pop(i)
         #     with open(FAVORITE, 'w') as outfile:
         #         json.dump(jdata, outfile, indent=2, sort_keys=True)
-    xbmc.executebuiltin('XBMC.Container.Refresh')
+    xbmc.executebuiltin('Container.Refresh')
 
 elif mode[0]=='cdaSearch':
     cdaSearch(ex_link)
@@ -749,9 +764,9 @@ elif mode[0] =='Szukaj':
     if not historia == ['']:
         for entry in historia:
             contextmenu = []
-            contextmenu.append((u'Usuń', 'XBMC.Container.Update(%s)'
+            contextmenu.append((u'Usuń', 'Container.Update(%s)'
                                 % build_url({'mode': 'SzukajUsun', 'ex_link': entry})),)
-            contextmenu.append((u'Usuń całą historię', 'XBMC.Container.Update(%s)'
+            contextmenu.append((u'Usuń całą historię', 'Container.Update(%s)'
                                 % build_url({'mode': 'SzukajUsunAll'})),)
             url = '%s/video/show/%s?duration=%s' % (cda.BASEURL, entry.replace(' ', '_'), sortv)
             addDir(name=entry, ex_link=url, mode='cdaSearch', fanart=None, contextmenu=contextmenu)
@@ -766,12 +781,12 @@ elif mode[0] =='SzukajNowe':
 
 elif mode[0] =='SzukajUsun':
     HistoryDel(ex_link)
-    xbmc.executebuiltin('XBMC.Container.Refresh(%s)'%  build_url({'mode': 'Szukaj'}))
+    xbmc.executebuiltin('Container.Refresh(%s)'%  build_url({'mode': 'Szukaj'}))
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
 
 elif mode[0] == 'SzukajUsunAll':
     HistoryClear()
-    xbmc.executebuiltin('XBMC.Container.Refresh(%s)'%  build_url({'mode': 'Szukaj'}))
+    xbmc.executebuiltin('Container.Refresh(%s)'%  build_url({'mode': 'Szukaj'}))
     xbmcplugin.endOfDirectory(addon_handle,succeeded=True,cacheToDisc=False)
 
 elif mode[0] == 'MojeCDA':
@@ -798,10 +813,10 @@ elif mode[0] == 'play':
 
 elif mode[0] == 'Opcje':
     my_addon.openSettings()
-    xbmc.executebuiltin('XBMC.Container.Refresh()')
+    xbmc.executebuiltin('Container.Refresh()')
 
 elif mode[0] == 'UserContent':
-    info = cda.grabInforFromLink(unquote(ex_link))
+    info = cda.grabInforFromLink(urllib_parse.unquote(ex_link))
     user = info.get('user', '')
     folders = info.get('folders', ())
     if folders:
@@ -815,7 +830,7 @@ elif mode[0] == 'UserContent':
 elif mode[0] == 'FolderContent':
     up = args.get('up', ['1'])[0]
     select = args.get('select', [''])[0]
-    info = cda.grabInforFromLink(unquote(ex_link))
+    info = cda.grabInforFromLink(urllib_parse.unquote(ex_link))
     folders = info.get('folders', [])
     if folders:
         try:
@@ -840,7 +855,7 @@ elif mode[0] =='AddMovie':
     if not new_item.get('_filmweb',False):
         title,year,label=cda.cleanTitle(new_item.get('title'))
         quer = xbmcgui.Dialog().input('Tytu\xc5\x82_Filmu Rok (popraw je\xc5\x9bli trzeba)', '%s %s'%(title,year) ,xbmcgui.INPUT_ALPHANUM)
-        new_item['title'] = U(quer)
+        new_item['title']=quer.decode('utf-8')
         xbmcgui.Dialog().notification('Sprawdzam video', new_item['title'] , new_item.get('img',xbmcgui.NOTIFICATION_INFO), 5000)
         new_item = updateMetadata(new_item)
     new_item['title']=new_item.get('title','').split('[COLOR')[0]
@@ -887,7 +902,7 @@ elif 'filtr' in mode[0]:
 
         my_addon.setSetting(myMode+'V',v)
         my_addon.setSetting(myMode+'N',n)
-        xbmc.executebuiltin('XBMC.Container.Refresh')
+        xbmc.executebuiltin('Container.Refresh')
     else:
         pass
 
@@ -895,4 +910,4 @@ elif 'filtr' in mode[0]:
 # Save changed addon data.
 addon_data.save(indent=2)
 
-# import web_pdb; web_pdb.set_trace()
+

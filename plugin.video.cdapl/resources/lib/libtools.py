@@ -5,9 +5,23 @@ import json
 import os
 import re
 import sys
-import urllib
-import urllib2
-import urlparse
+import six
+from six.moves import urllib_error, urllib_request, urllib_parse
+from six import iteritems#, unichr
+if six.PY3:
+    from http.client import HTTPException
+    basestring = str
+    unicode = str
+    xrange = range
+    
+    
+else:
+    from httplib import HTTPException
+
+
+#import urllib
+#import urllib2
+#import urlparse
 import xbmc
 import control #control
 import re
@@ -21,7 +35,7 @@ def cleantitle(title):
         return str(''.join(c for c in unicodedata.normalize('NFKD', unicode(title.decode('utf-8'))) if unicodedata.category(c) != 'Mn'))
     except:
         return title
-		
+        
 def replacePLch(itemF):
     list_of_special_chars = [
     ('\xc4\x84', 'a'),('\xc4\x85', 'a'),('\xc4\x98', 'e'),('\xc4\x99', 'e'),('\xc3\x93', 'o'),('\xc3\xb3', 'o'),('\xc4\x86', 'c'),
@@ -30,10 +44,10 @@ def replacePLch(itemF):
     for a,b in list_of_special_chars:
         itemF = itemF.replace(a,b)
     return itemF
-	
+    
 def printuj_linka(itemF=''):
     print '[CDA.PL Library]: %s'%itemF
-	
+    
 class lib_tools:
     @staticmethod
     def create_folder(folder):
@@ -54,7 +68,7 @@ class lib_tools:
                 pass
         except:
             pass
-			
+            
     @staticmethod
     def write_file(path, content):
         try:
@@ -66,7 +80,7 @@ class lib_tools:
             file.close()
         except Exception as e:
             pass
-			
+            
     @staticmethod
     def write_file2(path):
         content = None
@@ -78,7 +92,7 @@ class lib_tools:
         except Exception as e:
             pass
         return content
-		
+        
     @staticmethod
     def nfo_url(media_string, ids):
         tvdb_url = 'http://thetvdb.com/?tab=series&id=%s'
@@ -98,11 +112,11 @@ class lib_tools:
             return filmweb1_url % (str(ids['filmwebhref']))
         else:
             return ''
-			
+            
     @staticmethod
     def check_sources(title, year, imdb, tvdb=None, season=None, episode=None, tvshowtitle=None, premiered=None):
         return True
-		
+        
     @staticmethod
     def legal_filename(filename):
         try:
@@ -114,7 +128,7 @@ class lib_tools:
             return filename
         except:
             return filename
-			
+            
     @staticmethod
     def make_path(base_path, title, year='', season=''):
         show_folder = re.sub('[^\\w\\-_\\. ]', '_', title)
@@ -123,41 +137,41 @@ class lib_tools:
         if season:
             path = os.path.join(path, 'Season %s' % season)
         return path
-		
+        
     @staticmethod
     def get_urlStat(url):
-        req = urllib2.Request(url)
+        req = urllib_request.Request(url)
         req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.97 Safari/537.36')
         response = 'NotChecked'
         try:
-            resp = urllib2.urlopen(req)
+            resp = urllib_request.urlopen(req)
             response='OK'
-        except urllib2.HTTPError, e:
+        except urllib_error.HTTPError as e:
             response = 'HTTPError = ' + str(e.code)
-        except urllib2.URLError, e:
+        except urllib_error.URLError as e:
             response =  'URLError = ' + str(e.reason)
-        except httplib.HTTPException, e:
+        except HTTPException as e:
             response = 'HTTPException'
         return response
-		
+        
     @staticmethod
     def encoded_v(v):
         if isinstance(v, unicode): v = v.encode('utf8')
         elif isinstance(v, str): v.decode('utf8')
         return v
-		
+        
     @staticmethod
     def build_url(query):
         def encoded_dict(in_dict):
             out_dict = {}
-            for k, v in in_dict.items():
+            for k, v in iteritems(in_dict):
                 if isinstance(v, unicode): v = v.encode('utf8')
                 elif isinstance(v, str): v.decode('utf8')
                 out_dict[k] = v
             return out_dict
         addonID_ = 'plugin://plugin.video.cdapl/'
-        return addonID_ + '?' + urllib.urlencode(encoded_dict(query))
-		
+        return addonID_ + '?' + urllib_parse.urlencode(encoded_dict(query))
+        
 class libmovies:
     def __init__(self):
         self.library_folder = os.path.join(control.transPath(control.setting('library.movie')), '')
@@ -191,7 +205,7 @@ class libmoviesOk:
         self.infoDialog = False
         self.silentDialog = False
         self.war1 = True
-		
+        
     def add(self, found):
         fwebId = found.get('_filmweb',False)
         title = found.get('title','')
@@ -213,7 +227,7 @@ class libmoviesOk:
             control.infoDialog('Zako\xc5\x84czono', time=2)
         if self.library_setting == 'true' and not control.condVisibility('Library.IsScanningVideo') and files_added > 0:
             control.execute('UpdateLibrary(video)')
-			
+            
     def add2(self, i):
         if not control.condVisibility('Window.IsVisible(infodialog)') and not control.condVisibility('Player.HasVideo'):
             try:
@@ -247,7 +261,7 @@ class libmoviesOk:
             control.infoDialog('Dodano %d film\xc3\xb3w'%files_added, time=2)
         if self.library_setting == 'true' and not control.condVisibility('Library.IsScanningVideo') and files_added > 0:
             control.execute('UpdateLibrary(video)')
-			
+            
     def strmFile(self, fwebId, title, year, url):
         if isinstance(title,unicode): title = title.encode('utf-8')
         transtitle = cleantitle(title.translate(None, '\\/:*?"<>|') )
@@ -265,7 +279,7 @@ class libmoviesOk:
         lib_tools.write_file(os.path.join(folder, 'movie.nfo'), lib_tools.nfo_url('movie', {'data_film':fwebId}))
         ok = True
         return ok
-		
+        
     def dod_Movies(self,one,idx,N):
         from cdapl import cleanTitle
         from filmwebapi import searchFilmweb3
@@ -281,7 +295,7 @@ class libmoviesOk:
             found['url']= one.get('url')
             self.out.append(found)
             self.progressDialogBG.update(czas_progres,message='%s (%s)'%(found.get('title'),found.get('year')))
-			
+            
     def GetNewMovies(self):
         from cdapl import searchCDA
         import thread_pool
@@ -319,7 +333,7 @@ class libmoviesOk:
         self.progressDialogBG.close()
         self.add2( self.out )
         control.setSetting('library.service.last.run', datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-		
+        
     def check_remove(self,folder_,idx,N):
         from shutil import rmtree
         sciezka2x = os.path.join(self.library_folder,folder_)
@@ -352,7 +366,7 @@ class libmoviesOk:
             else:
                 self.res['skipped']+=1
                 printuj_linka('[CheckLink]: Skipping %s already checked on %s'%(folder_,str(check_time)) )
-				
+                
     def CheckLinksInLibrary(self):
         import thread_pool
         import time

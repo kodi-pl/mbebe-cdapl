@@ -4,17 +4,14 @@ from __future__ import absolute_import, division, unicode_literals, print_functi
 # Author: rysson
 # License: MIT
 
-import sys
 import re
-
-PY2 = sys.version_info < (3,)
-PY3 = sys.version_info >= (3,)
-
-if PY3:
-    from urllib import parse as urlparse
+import six
+from six.moves import urllib_parse
+if six.PY3:
+    unicode = str
     basestring = str
-else:
-    import urlparse
+
+#import urlparse
 
 
 #: Regex type
@@ -27,27 +24,18 @@ re_clean = re.compile(r'^\s+|\[[^]]*\]|\s+$')
 re_norm = re.compile(r'\s+')
 
 
-if PY3:
-    def U(string):
-        """Get unicode string."""
-        if isinstance(string, str):
-            return string
-        if isinstance(string, bytes):
-            return string.decode('utf-8')
-        return str(string)
-else:
-    def U(string):
-        """Get unicode string."""
-        if isinstance(string, unicode):
-            return string
-        if isinstance(string, str):
-            return string.decode('utf-8')
-        return unicode(string)
+def U(string):
+    """Get unicode string."""
+    if isinstance(string, unicode):
+        return string
+    if isinstance(string, str):
+        return string.decode('utf-8')
+    return unicode(string)
 
 
 def uclean(s):
     """Return clean unicode string. Remove [code...], normalize spaces, strip."""
-    return re_norm.sub(' ', re_clean.sub('', U(s)))
+    return re_norm.sub(u' ', re_clean.sub(u'', U(s)))
 
 
 def NN(n, word, *forms):
@@ -92,5 +80,5 @@ def find_re(pattern, text, default='', flags=0, many=True):
 def fragdict(url):
     """Returns URL fragment variables. URL can be str or urlparse.ParseResult()."""
     if isinstance(url, basestring):
-        url = urlparse.urlparse(url or '')
-    return dict(urlparse.parse_qsl(url.fragment))
+        url = urllib_parse.urlparse(url or '')
+    return dict(urllib_parse.parse_qsl(url.fragment))
